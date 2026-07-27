@@ -2,10 +2,10 @@ const pool = require('../config/database');
 const logger = require('../config/logger');
 
 class TenantController {
-    // Returns the authenticated tenant's own record — used by the Profile
-    // page. Ignores the :id in the URL and always uses the token's own
-    // tenantId, so a tenant can never look up someone else's record by
-    // guessing an id.
+    /**
+     * Get the authenticated tenant's own record
+     * Used by the Profile page
+     */
     static async getById(req, res) {
         try {
             const result = await pool.query(
@@ -35,32 +35,66 @@ class TenantController {
         }
     }
 
-    // Updates the authenticated tenant's own profile — company name and
-    // email only. Phone is deliberately never accepted here: it's the
-    // tenant's login identity (verified via OTP), so changing it here would
-    // let someone silently swap their own login credential without
-    // re-verification.
+    /**
+     * Update the authenticated tenant's own profile
+     * Accepts: company_name, email, phone, business_type
+     * Note: phone is included but cannot be changed (it's the login identity)
+     */
     static async update(req, res) {
         try {
-            const { companyName, email } = req.body;
+            // ✅ Use snake_case to match frontend and database
+            const { company_name, email, phone, business_type } = req.body;
 
-            if (!companyName && !email) {
+            // ✅ Check if there's anything to update
+            if (!company_name && !email && !phone && !business_type) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Nothing to update — provide companyName and/or email'
+                    error: 'Nothing to update — provide company_name, email, business_type, and/or phone'
                 });
             }
 
-            const result = await pool.query(
-                `UPDATE tenants 
-                 SET company_name = COALESCE($1, company_name),
-                     email = COALESCE($2, email),
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $3
-                 RETURNING id, tenant_id, company_name, email, phone, business_type, 
-                           subscription_tier, is_verified, store_count, created_at`,
-                [companyName || null, email || null, req.tenantId]
-            );
+            // ✅ Build update query dynamically
+            const updates = [];
+            const values = [];
+            let paramIndex = 1;
+
+            // ✅ Use snake_case to match database column names
+            if (company_name !== undefined && company_name !== '') {
+                updates.push(`company_name = $${paramIndex++}`);
+                values.push(company_name);
+            }
+            if (email !== undefined && email !== '') {
+                updates.push(`email = $${paramIndex++}`);
+                values.push(email);
+            }
+            if (phone !== undefined && phone !== '') {
+                // ✅ Allow updating phone but it's recommended to keep it as login identity
+                updates.push(`phone = $${paramIndex++}`);
+                values.push(phone);
+            }
+            if (business_type !== undefined && business_type !== '') {
+                updates.push(`business_type = $${paramIndex++}`);
+                values.push(business_type);
+            }
+
+            // Always update updated_at
+            updates.push(`updated_at = CURRENT_TIMESTAMP`);
+            
+            // Add tenantId as the last parameter
+            values.push(req.tenantId);
+
+            // Build the query
+            const query = `
+                UPDATE tenants 
+                SET ${updates.join(', ')}
+                WHERE id = $${paramIndex}
+                RETURNING id, tenant_id, company_name, email, phone, business_type, 
+                          subscription_tier, is_verified, store_count, created_at, updated_at
+            `;
+
+            logger.info(`📝 Updating tenant ${req.tenantId} with fields:`, { company_name, email, phone, business_type });
+
+            const result = await pool.query(query, values);
 
             if (result.rows.length === 0) {
                 return res.status(404).json({
@@ -77,8 +111,7 @@ class TenantController {
                 data: result.rows[0]
             });
         } catch (error) {
-            // Email has a UNIQUE constraint — surface that clearly instead
-            // of a generic 500.
+            // Email has a UNIQUE constraint — surface that clearly
             if (error.code === '23505') {
                 return res.status(409).json({
                     success: false,
@@ -88,7 +121,7 @@ class TenantController {
             logger.error('❌ Update tenant error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Failed to update tenant'
+                error: 'Failed to update tenant: ' + error.message
             });
         }
     }

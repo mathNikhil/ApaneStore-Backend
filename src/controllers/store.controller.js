@@ -15,6 +15,26 @@ class StoreController {
                 });
             }
 
+            // Safety net against duplicate stores: if this tenant already
+            // created an empty/draft store in the last 30 seconds, hand back
+            // that one instead of creating another. Catches races the
+            // frontend's own save-mutex can't (two tabs open, a save
+            // retried after a slow/failed response, etc).
+            const recentDraft = await pool.query(
+                `SELECT * FROM stores 
+                 WHERE tenant_id = $1 AND status = 'draft' 
+                 AND created_at > NOW() - INTERVAL '30 seconds'
+                 ORDER BY created_at DESC LIMIT 1`,
+                [tenantId]
+            );
+            if (recentDraft.rows.length > 0) {
+                logger.info(`🏪 Reused just-created draft store instead of duplicating: ${recentDraft.rows[0].id}`);
+                return res.status(201).json({
+                    success: true,
+                    data: recentDraft.rows[0]
+                });
+            }
+
             // Check if subdomain is taken
             const existing = await pool.query(
                 'SELECT id FROM stores WHERE subdomain = $1',
