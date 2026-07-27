@@ -1,14 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const TenantController = require('../controllers/tenant.controller');
-const { authenticate } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');  // ✅ Use 'authenticate'
 
-// A tenant only ever manages their own profile — no arbitrary tenant
-// lookup/list/delete here (that's what Admin/tenant.controller.js + the
-// authenticateAdmin-gated /api/admin/tenants routes are for).
-router.use(authenticate);
+// All routes require authentication
+router.use(authenticate);  // ✅ Use 'authenticate'
 
+// Get current tenant profile
 router.get('/me', TenantController.getById);
+
+// Update current tenant profile
 router.put('/me', TenantController.update);
 
 module.exports = router;

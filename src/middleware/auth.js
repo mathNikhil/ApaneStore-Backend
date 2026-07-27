@@ -48,6 +48,7 @@ const authenticate = async (req, res, next) => {
                 error: 'Token expired. Please login again.'
             });
         }
+        console.error('Auth error:', error);
         return res.status(500).json({
             success: false,
             error: 'Authentication failed'
@@ -68,4 +69,11 @@ const authorize = (...roles) => {
     };
 };
 
-module.exports = { authenticate, authorize };
+// ✅ Add alias for compatibility
+const authMiddleware = authenticate;
+
+module.exports = { 
+    authenticate, 
+    authorize,
+    authMiddleware  // ← Add this alias
+};
