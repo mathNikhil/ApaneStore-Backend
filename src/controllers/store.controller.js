@@ -2,70 +2,66 @@ const pool = require('../config/database');
 const logger = require('../config/logger');
 
 class StoreController {
-    // Create store
+    // Create a new store
     static async create(req, res) {
         try {
-            const { storeName, subdomain, config = {} } = req.body;
             const tenantId = req.tenantId;
+            const {
+                storeName,
+                tagline,
+                logoUrl,
+                bannerUrl,
+                brandColors,
+                fonts,
+                baseFontSize,
+                categories,
+                cartSettings,
+                paymentSettings,
+                addressSettings,
+                orderSettings,
+                profileSettings,
+                returnSettings,
+                images,
+            } = req.body;
 
-            if (!storeName || !subdomain) {
+            if (!storeName || storeName.trim() === '') {
                 return res.status(400).json({
                     success: false,
-                    error: 'Store name and subdomain are required'
+                    error: 'Store name is required'
                 });
             }
 
-            // Safety net against duplicate stores: if this tenant already
-            // created an empty/draft store in the last 30 seconds, hand back
-            // that one instead of creating another. Catches races the
-            // frontend's own save-mutex can't (two tabs open, a save
-            // retried after a slow/failed response, etc).
-            const recentDraft = await pool.query(
-                `SELECT * FROM stores 
-                 WHERE tenant_id = $1 AND status = 'draft' 
-                 AND created_at > NOW() - INTERVAL '30 seconds'
-                 ORDER BY created_at DESC LIMIT 1`,
-                [tenantId]
-            );
-            if (recentDraft.rows.length > 0) {
-                logger.info(`🏪 Reused just-created draft store instead of duplicating: ${recentDraft.rows[0].id}`);
-                return res.status(201).json({
-                    success: true,
-                    data: recentDraft.rows[0]
-                });
-            }
+            // Generate subdomain from store name
+            const subdomain = storeName
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-')
+                .replace(/^-|-$/g, '');
 
-            // Check if subdomain is taken
-            const existing = await pool.query(
-                'SELECT id FROM stores WHERE subdomain = $1',
-                [subdomain]
-            );
+            const storeId = `STORE_${Date.now()}`;
 
-            if (existing.rows.length > 0) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Subdomain already taken'
-                });
-            }
+            const config = {
+                brand: { storeName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
+                products: { categories },
+                cart: cartSettings,
+                payment: paymentSettings,
+                address: addressSettings,
+                order: orderSettings,
+                profile: profileSettings,
+                return: returnSettings,
+                images,
+            };
 
-            // Generate store_id
-            const timestamp = Date.now().toString().slice(-6);
-            const storeId = `STR-${timestamp}-${Math.floor(Math.random() * 10000)}`;
-
+            // ✅ Include published_at column
             const result = await pool.query(
-                `INSERT INTO stores (store_id, tenant_id, store_name, subdomain, config)
-                 VALUES ($1, $2, $3, $4, $5)
-                 RETURNING *`,
-                [storeId, tenantId, storeName, subdomain, config]
+                `INSERT INTO stores (store_id, tenant_id, store_name, subdomain, config, status, created_at, updated_at, published_at)
+                 VALUES ($1, $2, $3, $4, $5, 'draft', NOW(), NOW(), NULL)
+                 RETURNING id, store_id, store_name, subdomain, config, status, created_at, updated_at, published_at`,
+                [storeId, tenantId, storeName, subdomain, JSON.stringify(config)]
             );
 
-            // Update tenant store count
-            await pool.query(
-                'UPDATE tenants SET store_count = store_count + 1 WHERE id = $1',
-                [tenantId]
-            );
-
-            logger.info(`🏪 Store created: ${storeName} for tenant ${tenantId}`);
+            logger.info(`✅ Store created: ${storeId} for tenant ${tenantId}`);
 
             res.status(201).json({
                 success: true,
@@ -73,25 +69,127 @@ class StoreController {
                 data: result.rows[0]
             });
         } catch (error) {
+            if (error.code === '23505') {
+                return res.status(409).json({
+                    success: false,
+                    error: 'This store name is already taken. Please choose a different name.'
+                });
+            }
             logger.error('❌ Create store error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Failed to create store'
+                error: error.message || 'Failed to create store'
             });
         }
     }
 
-    // Get all stores for a tenant
+    // Update store
+    static async update(req, res) {
+        try {
+            const { id } = req.params;
+            const tenantId = req.tenantId;
+            const {
+                storeName,
+                tagline,
+                logoUrl,
+                bannerUrl,
+                brandColors,
+                fonts,
+                baseFontSize,
+                categories,
+                cartSettings,
+                paymentSettings,
+                addressSettings,
+                orderSettings,
+                profileSettings,
+                returnSettings,
+                images,
+                status,
+            } = req.body;
+
+            const checkResult = await pool.query(
+                'SELECT * FROM stores WHERE id = $1 AND tenant_id = $2',
+                [id, tenantId]
+            );
+
+            if (checkResult.rows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Store not found'
+                });
+            }
+
+            let subdomain = checkResult.rows[0].subdomain;
+            if (storeName && storeName !== checkResult.rows[0].store_name) {
+                subdomain = storeName
+                    .toLowerCase()
+                    .trim()
+                    .replace(/[^a-z0-9]/g, '-')
+                    .replace(/-+/g, '-')
+                    .replace(/^-|-$/g, '');
+            }
+
+            const config = {
+                brand: { storeName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
+                products: { categories },
+                cart: cartSettings,
+                payment: paymentSettings,
+                address: addressSettings,
+                order: orderSettings,
+                profile: profileSettings,
+                return: returnSettings,
+                images,
+            };
+
+            const result = await pool.query(
+                `UPDATE stores
+                 SET store_name = $1,
+                     subdomain = $2,
+                     config = $3,
+                     status = COALESCE($4, status),
+                     updated_at = NOW()
+                 WHERE id = $5
+                 RETURNING id, store_id, store_name, subdomain, status, config, created_at, updated_at, published_at`,
+                [storeName || checkResult.rows[0].store_name, subdomain, JSON.stringify(config), status || 'draft', id]
+            );
+
+            logger.info(`✅ Store updated: ${id}`);
+
+            res.json({
+                success: true,
+                message: 'Store updated successfully',
+                data: result.rows[0]
+            });
+        } catch (error) {
+            if (error.code === '23505') {
+                return res.status(409).json({
+                    success: false,
+                    error: 'This store name is already taken. Please choose a different name.'
+                });
+            }
+            logger.error('❌ Update store error:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message || 'Failed to update store'
+            });
+        }
+    }
+
+    // Get all stores for tenant
     static async getAll(req, res) {
         try {
             const tenantId = req.tenantId;
 
+            // ✅ Include published_at column
             const result = await pool.query(
-                'SELECT * FROM stores WHERE tenant_id = $1 ORDER BY created_at DESC',
+                `SELECT id, store_id, store_name, subdomain, status, config, created_at, updated_at, published_at
+                 FROM stores
+                 WHERE tenant_id = $1
+                 ORDER BY created_at DESC`,
                 [tenantId]
             );
 
-            res.status(200).json({
+            res.json({
                 success: true,
                 data: result.rows
             });
@@ -99,7 +197,7 @@ class StoreController {
             logger.error('❌ Get stores error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Failed to get stores'
+                error: error.message || 'Failed to get stores'
             });
         }
     }
@@ -110,8 +208,11 @@ class StoreController {
             const { id } = req.params;
             const tenantId = req.tenantId;
 
+            // ✅ Include published_at column
             const result = await pool.query(
-                'SELECT * FROM stores WHERE id = $1 AND tenant_id = $2',
+                `SELECT id, store_id, store_name, subdomain, status, config, created_at, updated_at, published_at
+                 FROM stores
+                 WHERE id = $1 AND tenant_id = $2`,
                 [id, tenantId]
             );
 
@@ -122,7 +223,7 @@ class StoreController {
                 });
             }
 
-            res.status(200).json({
+            res.json({
                 success: true,
                 data: result.rows[0]
             });
@@ -130,49 +231,7 @@ class StoreController {
             logger.error('❌ Get store error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Failed to get store'
-            });
-        }
-    }
-
-    // Update store
-    static async update(req, res) {
-        try {
-            const { id } = req.params;
-            const { storeName, subdomain, config, status } = req.body;
-            const tenantId = req.tenantId;
-
-            const result = await pool.query(
-                `UPDATE stores 
-                 SET store_name = COALESCE($1, store_name),
-                     subdomain = COALESCE($2, subdomain),
-                     config = COALESCE($3, config),
-                     status = COALESCE($4, status),
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $5 AND tenant_id = $6
-                 RETURNING *`,
-                [storeName, subdomain, config, status, id, tenantId]
-            );
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'Store not found'
-                });
-            }
-
-            logger.info(`🏪 Store updated: ${id}`);
-
-            res.status(200).json({
-                success: true,
-                message: 'Store updated successfully',
-                data: result.rows[0]
-            });
-        } catch (error) {
-            logger.error('❌ Update store error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Failed to update store'
+                error: error.message || 'Failed to get store'
             });
         }
     }
@@ -195,15 +254,9 @@ class StoreController {
                 });
             }
 
-            // Update tenant store count
-            await pool.query(
-                'UPDATE tenants SET store_count = store_count - 1 WHERE id = $1',
-                [tenantId]
-            );
+            logger.info(`✅ Store deleted: ${id}`);
 
-            logger.info(`🏪 Store deleted: ${id}`);
-
-            res.status(200).json({
+            res.json({
                 success: true,
                 message: 'Store deleted successfully'
             });
@@ -211,7 +264,7 @@ class StoreController {
             logger.error('❌ Delete store error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Failed to delete store'
+                error: error.message || 'Failed to delete store'
             });
         }
     }
