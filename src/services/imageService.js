@@ -66,6 +66,10 @@ class ImageService {
         return brandPath;
     }
 
+    // ============================================
+    // UPLOAD METHODS (Existing)
+    // ============================================
+
     async uploadImage(file, options = {}) {
         const {
             tenantId,
@@ -76,12 +80,10 @@ class ImageService {
             variantId = null,
         } = options;
 
-        // Validate tenantId
         if (!tenantId) {
             throw new Error('tenantId is required');
         }
 
-        // Validate file
         if (!file) {
             throw new Error('No file provided');
         }
@@ -94,12 +96,10 @@ class ImageService {
             throw new Error(`File size exceeds ${this.maxFileSize / (1024 * 1024)}MB limit`);
         }
 
-        // Generate unique filename
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(2, 8);
         const baseFilename = `${timestamp}_${random}`;
         
-        // Determine folder structure
         let uploadFolder;
         let urlPrefix;
 
@@ -136,19 +136,16 @@ class ImageService {
                 urlPrefix = `/uploads/tenants/${tenantId}/misc`;
         }
 
-        // Ensure upload folder exists
         if (!fs.existsSync(uploadFolder)) {
             fs.mkdirSync(uploadFolder, { recursive: true });
         }
 
-        // Read file buffer
         const buffer = fs.readFileSync(file.path);
         const ext = path.extname(file.originalname).toLowerCase();
 
-        // Generate multiple versions
         const versions = {};
 
-        // 1. ORIGINAL (optimized)
+        // 1. ORIGINAL
         const originalFilename = `${baseFilename}_original${ext}`;
         const originalPath = path.join(uploadFolder, originalFilename);
         await sharp(buffer)
@@ -194,7 +191,6 @@ class ImageService {
             .toFile(hdPath);
         versions.hd = `${urlPrefix}/${hdFilename}`;
 
-        // Delete temp file
         try {
             fs.unlinkSync(file.path);
         } catch (err) {
@@ -230,9 +226,15 @@ class ImageService {
         return results;
     }
 
+    // ============================================
+    // DELETE METHODS (Existing + New)
+    // ============================================
+
+    /**
+     * Delete a single image (all versions)
+     */
     async deleteImage(filePath) {
         try {
-            // Delete all versions
             const fullPath = path.join(this.uploadBasePath, filePath);
             if (fs.existsSync(fullPath)) {
                 fs.unlinkSync(fullPath);
@@ -244,11 +246,17 @@ class ImageService {
         }
     }
 
+    /**
+     * Delete all images for a product
+     */
     async deleteProductImages(tenantId, storeId, productId) {
         try {
             const productPath = this.getProductPath(tenantId, storeId, productId);
             if (fs.existsSync(productPath)) {
+                const fileCount = this.countFiles(productPath);
+                const size = this.getFolderSize(productPath);
                 fs.rmSync(productPath, { recursive: true, force: true });
+                console.log(`🗑️ Deleted product images: ${productId} (${fileCount} files, ${(size / 1024 / 1024).toFixed(2)} MB)`);
             }
             return { success: true };
         } catch (error) {
@@ -257,6 +265,138 @@ class ImageService {
         }
     }
 
+    /**
+     * ✅ NEW: Delete ALL images for a store
+     * Recursively deletes the entire store folder
+     */
+    async deleteStoreImages(tenantId, storeId) {
+        try {
+            const storePath = path.join(
+                this.uploadBasePath, 
+                'tenants', 
+                tenantId, 
+                'stores', 
+                storeId
+            );
+            
+            if (fs.existsSync(storePath)) {
+                const fileCount = this.countFiles(storePath);
+                const size = this.getFolderSize(storePath);
+                
+                // Delete the entire folder
+                fs.rmSync(storePath, { recursive: true, force: true });
+                
+                console.log(`🗑️ Deleted store images: ${storeId} (${fileCount} files, ${(size / 1024 / 1024).toFixed(2)} MB)`);
+                
+                return {
+                    success: true,
+                    filesDeleted: fileCount,
+                    sizeDeleted: size,
+                    sizeDeletedMB: (size / 1024 / 1024).toFixed(2)
+                };
+            }
+            
+            return {
+                success: true,
+                filesDeleted: 0,
+                sizeDeleted: 0,
+                sizeDeletedMB: '0.00',
+                message: 'No images found for this store'
+            };
+        } catch (error) {
+            console.error('Error deleting store images:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * ✅ NEW: Delete a category folder and its images
+     */
+    async deleteCategoryImages(tenantId, storeId, categoryId) {
+        try {
+            const categoryPath = this.getCategoryPath(tenantId, storeId, categoryId);
+            if (fs.existsSync(categoryPath)) {
+                const fileCount = this.countFiles(categoryPath);
+                const size = this.getFolderSize(categoryPath);
+                fs.rmSync(categoryPath, { recursive: true, force: true });
+                console.log(`🗑️ Deleted category images: ${categoryId} (${fileCount} files)`);
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('Delete category error:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * ✅ NEW: Delete brand images (logo, banner, etc.)
+     */
+    async deleteBrandImages(tenantId) {
+        try {
+            const brandPath = this.getBrandPath(tenantId);
+            if (fs.existsSync(brandPath)) {
+                const fileCount = this.countFiles(brandPath);
+                const size = this.getFolderSize(brandPath);
+                fs.rmSync(brandPath, { recursive: true, force: true });
+                console.log(`🗑️ Deleted brand images for tenant: ${tenantId} (${fileCount} files)`);
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('Delete brand error:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // ============================================
+    // HELPER METHODS (Existing + New)
+    // ============================================
+
+    /**
+     * ✅ NEW: Count files in a directory (recursive)
+     */
+    countFiles(dir) {
+        let count = 0;
+        if (fs.existsSync(dir)) {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                const filePath = path.join(dir, file);
+                const stat = fs.statSync(filePath);
+                if (stat.isDirectory()) {
+                    count += this.countFiles(filePath);
+                } else {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
+     * ✅ NEW: Get total size of a directory (recursive)
+     */
+    getFolderSize(dir) {
+        let size = 0;
+        if (fs.existsSync(dir)) {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                const filePath = path.join(dir, file);
+                const stat = fs.statSync(filePath);
+                if (stat.isDirectory()) {
+                    size += this.getFolderSize(filePath);
+                } else {
+                    size += stat.size;
+                }
+            }
+        }
+        return size;
+    }
+
+    /**
+     * Get storage usage for a tenant
+     */
     getStorageUsage(tenantId) {
         const tenantPath = this.getTenantPath(tenantId);
         let totalSize = 0;
