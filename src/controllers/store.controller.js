@@ -53,12 +53,11 @@ class StoreController {
                 images,
             };
 
-            // ✅ Include published_at column
             const result = await pool.query(
-                `INSERT INTO stores (store_id, tenant_id, store_name, subdomain, config, status, created_at, updated_at, published_at)
-                 VALUES ($1, $2, $3, $4, $5, 'draft', NOW(), NOW(), NULL)
-                 RETURNING id, store_id, store_name, subdomain, config, status, created_at, updated_at, published_at`,
-                [storeId, tenantId, storeName, subdomain, JSON.stringify(config)]
+                `INSERT INTO stores (store_id, tenant_id, store_name, subdomain, config, status, last_builder_step, created_at, updated_at, published_at)
+                 VALUES ($1, $2, $3, $4, $5, 'draft', $6, NOW(), NOW(), NULL)
+                 RETURNING id, store_id, store_name, subdomain, config, status, last_builder_step, created_at, updated_at, published_at`,
+                [storeId, tenantId, storeName, subdomain, JSON.stringify(config), 1]
             );
 
             logger.info(`✅ Store created: ${storeId} for tenant ${tenantId}`);
@@ -105,6 +104,7 @@ class StoreController {
                 returnSettings,
                 images,
                 status,
+                lastBuilderStep,
             } = req.body;
 
             const checkResult = await pool.query(
@@ -147,10 +147,11 @@ class StoreController {
                      subdomain = $2,
                      config = $3,
                      status = COALESCE($4, status),
+                     last_builder_step = COALESCE($5, last_builder_step, 1),
                      updated_at = NOW()
-                 WHERE id = $5
-                 RETURNING id, store_id, store_name, subdomain, status, config, created_at, updated_at, published_at`,
-                [storeName || checkResult.rows[0].store_name, subdomain, JSON.stringify(config), status || 'draft', id]
+                 WHERE id = $6
+                 RETURNING id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at`,
+                [storeName || checkResult.rows[0].store_name, subdomain, JSON.stringify(config), status || 'draft', lastBuilderStep || 1, id]
             );
 
             logger.info(`✅ Store updated: ${id}`);
@@ -180,9 +181,8 @@ class StoreController {
         try {
             const tenantId = req.tenantId;
 
-            // ✅ Include published_at column
             const result = await pool.query(
-                `SELECT id, store_id, store_name, subdomain, status, config, created_at, updated_at, published_at
+                `SELECT id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at
                  FROM stores
                  WHERE tenant_id = $1
                  ORDER BY created_at DESC`,
@@ -208,9 +208,8 @@ class StoreController {
             const { id } = req.params;
             const tenantId = req.tenantId;
 
-            // ✅ Include published_at column
             const result = await pool.query(
-                `SELECT id, store_id, store_name, subdomain, status, config, created_at, updated_at, published_at
+                `SELECT id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at
                  FROM stores
                  WHERE id = $1 AND tenant_id = $2`,
                 [id, tenantId]
