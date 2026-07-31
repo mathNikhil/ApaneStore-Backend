@@ -1,131 +1,253 @@
-const imageService = require('../services/imageService');
+const ImageService = require('../services/imageService');
+const StoreImage = require('../models/StoreImage');
+const { getDisplayInfo } = require('../config/imageRequirements');
 
 class ImageController {
-    async uploadImage(req, res) {
+    // Upload a single image
+    static async uploadImage(req, res) {
         try {
-            const { tenantId, storeId, productId, categoryId, usageType } = req.body;
-            
-            if (!req.file) {
-                return res.status(400).json({ 
+            const { storeId, tenantId } = req.params;
+            const imageType = req.imageType; // Now reliably set by the route middleware
+            const referenceId = req.body.referenceId || null;
+
+            // Check if tenant and store exist
+            if (!tenantId || !storeId) {
+                return res.status(400).json({
                     success: false,
-                    error: 'No file uploaded' 
+                    error: 'Tenant ID and Store ID are required'
                 });
             }
 
-            const result = await imageService.uploadImage(req.file, {
+            // Process and save image
+            const result = await ImageService.processAndSaveImage(
+                req.file,
+                imageType,
                 tenantId,
-                storeId: storeId || null,
-                productId: productId || null,
-                categoryId: categoryId || null,
-                usageType: usageType || 'product',
+                storeId,
+                referenceId
+            );
+
+            return res.status(201).json({
+                success: true,
+                message: 'Image uploaded successfully',
+                data: result
             });
 
-            res.json(result);
         } catch (error) {
-            console.error('Upload error:', error);
-            res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
-                error: error.message 
+                error: error.message
             });
         }
     }
 
-    async uploadMultipleImages(req, res) {
+    // Upload multiple images (gallery)
+    static async uploadMultipleImages(req, res) {
         try {
-            const { tenantId, storeId, productId, categoryId, usageType } = req.body;
+            const { storeId, tenantId } = req.params;
+            const imageType = req.imageType; // Now reliably set by the route middleware
+            const referenceId = req.body.referenceId;
+
+            if (!referenceId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Reference ID (product_id, variant_id, etc.) is required'
+                });
+            }
+
+            const results = [];
+            const errors = [];
+
+            // Process each file
+            for (const file of req.files) {
+                try {
+                    const result = await ImageService.processAndSaveImage(
+                        file,
+                        imageType,
+                        tenantId,
+                        storeId,
+                        referenceId
+                    );
+                    results.push(result);
+                } catch (error) {
+                    errors.push({
+                        filename: file.originalname,
+                        error: error.message
+                    });
+                }
+            }
+
+            return res.status(201).json({
+                success: true,
+                message: `${results.length} images uploaded successfully`,
+                data: {
+                    uploaded: results,
+                    failed: errors
+                }
+            });
+
+        } catch (error) {
+            return res.status(500).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
+
+    // Get all images for a store
+    static async getStoreImages(req, res) {
+        try {
+            const { storeId } = req.params;
             
-            if (!req.files || req.files.length === 0) {
-                return res.status(400).json({ 
-                    success: false,
-                    error: 'No files uploaded' 
-                });
-            }
+            const images = await StoreImage.findByStore(storeId);
+            
+            // Add URLs to each image
+            const imagesWithUrls = images.map(image => ({
+                ...image,
+                url: ImageService.getImageUrl(storeId, image.storage_path)
+            }));
 
-            const results = await imageService.batchUploadImages(req.files, {
-                tenantId,
-                storeId: storeId || null,
-                productId: productId || null,
-                categoryId: categoryId || null,
-                usageType: usageType || 'product',
+            return res.status(200).json({
+                success: true,
+                data: imagesWithUrls
             });
 
-            res.json({ 
-                success: true, 
-                results,
-                totalUploaded: results.filter(r => r.success).length,
-                totalFailed: results.filter(r => !r.success).length
-            });
         } catch (error) {
-            console.error('Batch upload error:', error);
-            res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
-                error: error.message 
+                error: error.message
             });
         }
     }
 
-    async deleteImage(req, res) {
+    // Get branding images (logo, hero)
+    static async getBrandingImages(req, res) {
         try {
-            const { filePath } = req.body;
-            if (!filePath) {
-                return res.status(400).json({ 
-                    success: false,
-                    error: 'File path required' 
-                });
-            }
-            const result = await imageService.deleteImage(filePath);
-            res.json(result);
+            const { storeId } = req.params;
+            
+            const images = await StoreImage.findBrandingImages(storeId);
+            
+            const imagesWithUrls = images.map(image => ({
+                ...image,
+                url: ImageService.getImageUrl(storeId, image.storage_path)
+            }));
+
+            return res.status(200).json({
+                success: true,
+                data: imagesWithUrls
+            });
+
         } catch (error) {
-            console.error('Delete error:', error);
-            res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
-                error: error.message 
+                error: error.message
             });
         }
     }
 
-    async deleteProductImages(req, res) {
+    // Get product images
+    static async getProductImages(req, res) {
         try {
-            const { tenantId, storeId, productId } = req.body;
-            if (!tenantId || !storeId || !productId) {
-                return res.status(400).json({ 
-                    success: false,
-                    error: 'tenantId, storeId, and productId required' 
-                });
-            }
-            const result = await imageService.deleteProductImages(tenantId, storeId, productId);
-            res.json(result);
+            const { productId } = req.params;
+            
+            const images = await StoreImage.findProductImages(productId);
+            
+            // Group by type
+            const mainImage = images.find(img => img.image_type === 'PRODUCT_MAIN');
+            const galleryImages = images.filter(img => img.image_type === 'PRODUCT_GALLERY');
+
+            return res.status(200).json({
+                success: true,
+                data: {
+                    main: mainImage ? {
+                        ...mainImage,
+                        url: ImageService.getImageUrl(mainImage.store_id, mainImage.storage_path)
+                    } : null,
+                    gallery: galleryImages.map(img => ({
+                        ...img,
+                        url: ImageService.getImageUrl(img.store_id, img.storage_path)
+                    }))
+                }
+            });
+
         } catch (error) {
-            console.error('Delete product error:', error);
-            res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
-                error: error.message 
+                error: error.message
             });
         }
     }
 
-    async getStorageUsage(req, res) {
+    // Delete an image
+    static async deleteImage(req, res) {
         try {
-            const { tenantId } = req.params;
-            if (!tenantId) {
-                return res.status(400).json({ 
+            const { imageId } = req.params;
+            
+            const result = await ImageService.deleteImage(imageId);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Image deleted successfully',
+                data: result
+            });
+
+        } catch (error) {
+            return res.status(500).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
+
+    // Get image requirements/display info
+    static async getRequirements(req, res) {
+        try {
+            const { imageType } = req.params;
+            
+            const displayInfo = getDisplayInfo(imageType);
+            if (!displayInfo) {
+                return res.status(404).json({
                     success: false,
-                    error: 'tenantId required' 
+                    error: 'Unknown image type'
                 });
             }
-            const usage = imageService.getStorageUsage(tenantId);
-            res.json({ 
-                success: true, 
-                data: usage 
+
+            return res.status(200).json({
+                success: true,
+                data: displayInfo
             });
+
         } catch (error) {
-            console.error('Storage usage error:', error);
-            res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
-                error: error.message 
+                error: error.message
+            });
+        }
+    }
+
+    // Get all requirements
+    static async getAllRequirements(req, res) {
+        try {
+            const { IMAGE_REQUIREMENTS } = require('../config/imageRequirements');
+            
+            // Return only display info
+            const displayInfo = {};
+            for (const [key, value] of Object.entries(IMAGE_REQUIREMENTS)) {
+                displayInfo[key] = value.display;
+            }
+
+            return res.status(200).json({
+                success: true,
+                data: displayInfo
+            });
+
+        } catch (error) {
+            return res.status(500).json({
+                success: false,
+                error: error.message
             });
         }
     }
 }
 
-module.exports = new ImageController();
+module.exports = ImageController;
