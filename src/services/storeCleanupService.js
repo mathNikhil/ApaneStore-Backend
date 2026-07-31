@@ -125,24 +125,36 @@ class StoreCleanupService {
         try {
             console.log(`🗑️ Deleting draft store: ${store.store_name} (${store.store_id})`);
             
-            // 1. Delete all images from storage using imageService
+            // ✅ 1. Delete all images from storage using imageService
             const storageResult = await imageService.deleteStoreImages(
                 store.tenant_id,
                 store.store_id
             );
             
-            // 2. Delete from database (cascade will handle related records)
+            // ✅ 2. Also delete any orphaned images from the store_images table
+            // This handles images that might not be in the storage folder
+            try {
+                const imageDeleteResult = await pool.query(
+                    `DELETE FROM store_images WHERE store_id = $1 RETURNING id`,
+                    [store.id]
+                );
+                console.log(`✅ Deleted ${imageDeleteResult.rowCount} image records from database`);
+            } catch (imageError) {
+                console.warn('⚠️ No store_images table found or error deleting images:', imageError.message);
+            }
+            
+            // ✅ 3. Delete from database (cascade will handle related records)
             await pool.query(
                 `DELETE FROM stores WHERE id = $1`,
                 [store.id]
             );
             
-            // 3. Log the deletion (optional - can be stored in a log table)
+            // ✅ 4. Log the deletion (optional - can be stored in a log table)
             console.log(`✅ Deleted store: ${store.store_name} (${store.store_id})`);
             
             return {
                 success: true,
-                storage: storageResult,
+                storage: storageResult || { filesDeleted: 0, sizeDeleted: 0 },
                 storeName: store.store_name,
                 storeId: store.store_id
             };
@@ -335,27 +347,40 @@ class StoreCleanupService {
                  AND created_at < NOW() - INTERVAL '${expiryDays - 30} days'`
             );
             
-            // Storage usage for draft stores
-            const storageResult = await pool.query(
-                `SELECT SUM(
-                    (SELECT COALESCE(SUM(
-                        (SELECT COALESCE(SUM(
-                            (SELECT COALESCE(SUM(size), 0) 
-                             FROM store_images 
-                             WHERE store_id = stores.id)
-                        ), 0))
-                    ), 0))
-                 ) as total_storage
-                 FROM stores 
-                 WHERE status = 'draft' AND deleted_at IS NULL`
-            );
+            // ✅ NEW: Get image storage usage for draft stores
+            let storageResult;
+            try {
+                storageResult = await pool.query(
+                    `SELECT COALESCE(SUM(si.file_size), 0) as total_storage
+                     FROM store_images si
+                     INNER JOIN stores s ON si.store_id = s.id
+                     WHERE s.status = 'draft' AND s.deleted_at IS NULL`
+                );
+            } catch (error) {
+                // store_images table might not exist yet
+                storageResult = { rows: [{ total_storage: 0 }] };
+            }
+            
+            // ✅ NEW: Get total number of images in draft stores
+            let imageCountResult;
+            try {
+                imageCountResult = await pool.query(
+                    `SELECT COUNT(*) as image_count
+                     FROM store_images si
+                     INNER JOIN stores s ON si.store_id = s.id
+                     WHERE s.status = 'draft' AND s.deleted_at IS NULL`
+                );
+            } catch (error) {
+                imageCountResult = { rows: [{ image_count: 0 }] };
+            }
             
             return {
                 totalDraftStores: parseInt(totalResult.rows[0]?.total || 0),
                 expiredStores: parseInt(expiredResult.rows[0]?.expired || 0),
                 expiringSoon: parseInt(expiringResult.rows[0]?.expiring_soon || 0),
                 expiryDays: expiryDays,
-                estimatedStorageMB: parseFloat(storageResult.rows[0]?.total_storage || 0) / (1024 * 1024)
+                estimatedStorageMB: parseFloat(storageResult.rows[0]?.total_storage || 0) / (1024 * 1024),
+                totalImages: parseInt(imageCountResult.rows[0]?.image_count || 0)
             };
         } catch (error) {
             console.error('Error getting cleanup stats:', error);
@@ -382,6 +407,211 @@ class StoreCleanupService {
         } catch (error) {
             console.error('Error marking expiry warning sent:', error);
             return { success: false, error: error.message };
+        }
+    }
+
+    // ============================================================
+    // ✅ NEW FUNCTIONS ADDED FOR IMAGE MANAGEMENT
+    // ============================================================
+
+    /**
+     * ✅ CLEANUP DRAFT STORE IMAGES ONLY
+     * This function deletes images of draft stores without deleting the stores
+     * Useful for freeing up space while keeping the store data
+     * 
+     * @returns {Promise<Object>} Cleanup results
+     */
+    async cleanupDraftStoreImages() {
+        console.log('🔄 Running draft store image cleanup...');
+        const startTime = Date.now();
+
+        try {
+            // Get all draft stores
+            const draftStores = await this.getDraftStores();
+
+            if (draftStores.length === 0) {
+                console.log('✅ No draft stores found');
+                return {
+                    success: true,
+                    message: 'No draft stores found',
+                    deletedImages: 0,
+                    duration: Date.now() - startTime
+                };
+            }
+
+            console.log(`📸 Found ${draftStores.length} draft stores`);
+
+            let totalImagesDeleted = 0;
+            let totalSizeDeleted = 0;
+            const results = [];
+
+            for (const store of draftStores) {
+                try {
+                    // Get all images for this store
+                    const images = await pool.query(
+                        `SELECT * FROM store_images WHERE store_id = $1`,
+                        [store.id]
+                    );
+
+                    if (images.rows.length === 0) {
+                        continue;
+                    }
+
+                    console.log(`📸 Deleting ${images.rows.length} images from store: ${store.store_name}`);
+
+                    // Delete images using imageService
+                    const storageResult = await imageService.deleteStoreImages(
+                        store.tenant_id,
+                        store.store_id
+                    );
+
+                    totalImagesDeleted += storageResult.filesDeleted || images.rows.length;
+                    totalSizeDeleted += storageResult.sizeDeleted || 0;
+
+                    results.push({
+                        storeId: store.id,
+                        storeName: store.store_name,
+                        imagesDeleted: images.rows.length,
+                        sizeDeleted: storageResult.sizeDeleted || 0
+                    });
+
+                } catch (error) {
+                    console.error(`Failed to delete images for store ${store.id}:`, error.message);
+                    results.push({
+                        storeId: store.id,
+                        storeName: store.store_name,
+                        error: error.message
+                    });
+                }
+            }
+
+            const duration = Date.now() - startTime;
+
+            console.log(`✅ Image cleanup complete: ${totalImagesDeleted} images deleted in ${duration}ms`);
+            console.log(`📊 Freed: ${(totalSizeDeleted / 1024 / 1024).toFixed(2)} MB`);
+
+            return {
+                success: true,
+                deletedImages: totalImagesDeleted,
+                totalSizeDeletedMB: (totalSizeDeleted / 1024 / 1024).toFixed(2),
+                duration: duration,
+                results: results
+            };
+
+        } catch (error) {
+            console.error('❌ Image cleanup error:', error);
+            return {
+                success: false,
+                error: error.message,
+                duration: Date.now() - startTime
+            };
+        }
+    }
+
+    /**
+     * ✅ DELETE ALL IMAGES FOR A SPECIFIC STORE
+     * Used when a store is manually deleted or unpublished
+     * 
+     * @param {string} tenantId - Tenant ID
+     * @param {string} storeId - Store ID
+     * @returns {Promise<Object>} Deletion result
+     */
+    async deleteStoreImages(tenantId, storeId) {
+        try {
+            console.log(`🗑️ Deleting images for store: ${storeId}`);
+            
+            // Use the imageService to delete all images
+            const result = await imageService.deleteStoreImages(tenantId, storeId);
+            
+            // Also delete from store_images table
+            try {
+                const imageDeleteResult = await pool.query(
+                    `DELETE FROM store_images WHERE store_id = $1 RETURNING id`,
+                    [storeId]
+                );
+                console.log(`✅ Deleted ${imageDeleteResult.rowCount} image records from database`);
+            } catch (error) {
+                console.warn('⚠️ No store_images table found:', error.message);
+            }
+            
+            return {
+                success: true,
+                filesDeleted: result.filesDeleted || 0,
+                sizeDeleted: result.sizeDeleted || 0
+            };
+        } catch (error) {
+            console.error('Error deleting store images:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * ✅ GET STORAGE USAGE FOR ALL STORES
+     * Returns storage usage breakdown for super admin dashboard
+     * 
+     * @param {string} tenantId - Optional tenant filter
+     * @returns {Promise<Object>} Storage usage statistics
+     */
+    async getStorageUsageStats(tenantId = null) {
+        try {
+            let query = `
+                SELECT 
+                    s.id as store_id,
+                    s.store_name,
+                    s.status,
+                    COUNT(si.id) as image_count,
+                    COALESCE(SUM(si.file_size), 0) as total_bytes
+                FROM stores s
+                LEFT JOIN store_images si ON s.id = si.store_id
+            `;
+            
+            const params = [];
+            if (tenantId) {
+                query += ` WHERE s.tenant_id = $1`;
+                params.push(tenantId);
+            }
+            
+            query += `
+                GROUP BY s.id, s.store_name, s.status
+                ORDER BY total_bytes DESC
+            `;
+            
+            const result = await pool.query(query, params);
+            
+            const stores = result.rows.map(row => ({
+                storeId: row.store_id,
+                storeName: row.store_name,
+                status: row.status,
+                imageCount: parseInt(row.image_count),
+                totalBytes: parseInt(row.total_bytes),
+                totalMB: (parseInt(row.total_bytes) / (1024 * 1024)).toFixed(2)
+            }));
+            
+            const totalBytes = stores.reduce((sum, s) => sum + s.totalBytes, 0);
+            
+            return {
+                stores: stores,
+                summary: {
+                    totalStores: stores.length,
+                    totalImages: stores.reduce((sum, s) => sum + s.imageCount, 0),
+                    totalStorageMB: (totalBytes / (1024 * 1024)).toFixed(2),
+                    totalStorageGB: (totalBytes / (1024 * 1024 * 1024)).toFixed(2)
+                }
+            };
+        } catch (error) {
+            console.error('Error getting storage usage:', error);
+            return {
+                stores: [],
+                summary: {
+                    totalStores: 0,
+                    totalImages: 0,
+                    totalStorageMB: '0.00',
+                    totalStorageGB: '0.00'
+                }
+            };
         }
     }
 }

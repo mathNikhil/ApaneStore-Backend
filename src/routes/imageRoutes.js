@@ -1,69 +1,92 @@
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const imageController = require('../controllers/imageController');
-
 const router = express.Router();
+const ImageController = require('../controllers/imageController');
+const { uploadSingle, uploadMultiple, handleMulterError } = require('../middleware/upload');
+const { validateSingleImage, validateMultipleImages } = require('../middleware/imageValidation');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '../../uploads/temp');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        const timestamp = Date.now();
-        const random = Math.random().toString(36).substring(2, 8);
-        const ext = path.extname(file.originalname);
-        cb(null, `${timestamp}_${random}${ext}`);
-    }
-});
+// ==================== PUBLIC ROUTES ====================
+// Get image requirements
+router.get('/images/requirements', ImageController.getAllRequirements);
+router.get('/images/requirements/:imageType', ImageController.getRequirements);
 
-// File filter
-const fileFilter = (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
-    if (allowedTypes.includes(file.mimetype)) {
-        cb(null, true);
-    } else {
-        cb(new Error(`Invalid file type: ${file.mimetype}. Allowed: ${allowedTypes.join(', ')}`), false);
-    }
-};
+// ==================== PROTECTED ROUTES ====================
+// (Add auth middleware here when ready)
 
-// Multer upload middleware
-const upload = multer({
-    storage: storage,
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
-    },
-    fileFilter: fileFilter,
-});
+// ==================== STORE IMAGES ====================
+// Get all images for a store
+router.get('/stores/:storeId/images', ImageController.getStoreImages);
+router.get('/stores/:storeId/images/branding', ImageController.getBrandingImages);
 
-// Routes
-router.post('/upload', upload.single('image'), imageController.uploadImage);
-router.post('/upload-multiple', upload.array('images', 20), imageController.uploadMultipleImages);
-router.delete('/delete', imageController.deleteImage);
-router.delete('/product-images', imageController.deleteProductImages);
-router.get('/usage/:tenantId', imageController.getStorageUsage);
+// ==================== BRANDING IMAGES (STEP 1) ====================
+// Upload Logo (Step 1)
+router.post(
+    '/stores/:tenantId/:storeId/images/branding/logo',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'LOGO'; next(); }, // Set imageType manually
+    validateSingleImage,
+    ImageController.uploadImage
+);
 
-// Error handler for multer
-router.use((err, req, res, next) => {
-    if (err instanceof multer.MulterError) {
-        if (err.code === 'FILE_TOO_LARGE') {
-            return res.status(400).json({ 
-                success: false,
-                error: 'File too large. Maximum size is 5MB.' 
-            });
-        }
-        return res.status(400).json({ 
-            success: false,
-            error: err.message 
-        });
-    }
-    next(err);
-});
+// Upload Hero Banner (Step 1)
+router.post(
+    '/stores/:tenantId/:storeId/images/branding/hero',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'HERO'; next(); },
+    validateSingleImage,
+    ImageController.uploadImage
+);
+
+// ==================== PRODUCT IMAGES (STEP 2) ====================
+// Upload Product Main Image (Step 2)
+router.post(
+    '/stores/:tenantId/:storeId/images/products/main',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'PRODUCT_MAIN'; next(); },
+    validateSingleImage,
+    ImageController.uploadImage
+);
+
+// Upload Product Gallery Images (Step 2)
+router.post(
+    '/stores/:tenantId/:storeId/images/products/gallery',
+    uploadMultiple('images', 5),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'PRODUCT_GALLERY'; next(); },
+    validateMultipleImages,
+    ImageController.uploadMultipleImages
+);
+
+// ==================== VARIANT IMAGES (STEP 2) ====================
+// Upload Variant Thumbnail
+router.post(
+    '/stores/:tenantId/:storeId/images/variants',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'VARIANT'; next(); },
+    validateSingleImage,
+    ImageController.uploadImage
+);
+
+// ==================== CATEGORY IMAGES (STEP 2) ====================
+// Upload Category Image
+router.post(
+    '/stores/:tenantId/:storeId/images/categories',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'CATEGORY'; next(); },
+    validateSingleImage,
+    ImageController.uploadImage
+);
+
+// ==================== PRODUCT SPECIFIC ROUTES ====================
+// Get images for a specific product
+router.get('/stores/products/:productId/images', ImageController.getProductImages);
+
+// ==================== DELETE ROUTES ====================
+// Delete an image
+router.delete('/images/:imageId', ImageController.deleteImage);
 
 module.exports = router;
