@@ -5,32 +5,25 @@ const { uploadSingle, uploadMultiple, handleMulterError } = require('../middlewa
 const { validateSingleImage, validateMultipleImages } = require('../middleware/imageValidation');
 
 // ==================== PUBLIC ROUTES ====================
-// Get image requirements
 router.get('/images/requirements', ImageController.getAllRequirements);
 router.get('/images/requirements/:imageType', ImageController.getRequirements);
 
-// ==================== PROTECTED ROUTES ====================
-// (Add auth middleware here when ready)
-
 // ==================== STORE IMAGES ====================
-// Get all images for a store
-router.get('/stores/:storeId/images', ImageController.getStoreImages);
-router.get('/stores/:storeId/images/branding', ImageController.getBrandingImages);
+router.get('/:storeId/images', ImageController.getStoreImages);
+router.get('/:storeId/images/branding', ImageController.getBrandingImages);
 
 // ==================== BRANDING IMAGES (STEP 1) ====================
-// Upload Logo (Step 1)
 router.post(
-    '/stores/:tenantId/:storeId/images/branding/logo',
+    '/:tenantId/:storeId/images/logo',
     uploadSingle('image'),
     handleMulterError,
-    (req, res, next) => { req.imageType = 'LOGO'; next(); }, // Set imageType manually
+    (req, res, next) => { req.imageType = 'LOGO'; next(); },
     validateSingleImage,
     ImageController.uploadImage
 );
 
-// Upload Hero Banner (Step 1)
 router.post(
-    '/stores/:tenantId/:storeId/images/branding/hero',
+    '/:tenantId/:storeId/images/hero',
     uploadSingle('image'),
     handleMulterError,
     (req, res, next) => { req.imageType = 'HERO'; next(); },
@@ -39,9 +32,8 @@ router.post(
 );
 
 // ==================== PRODUCT IMAGES (STEP 2) ====================
-// Upload Product Main Image (Step 2)
 router.post(
-    '/stores/:tenantId/:storeId/images/products/main',
+    '/:tenantId/:storeId/images/products/main',
     uploadSingle('image'),
     handleMulterError,
     (req, res, next) => { req.imageType = 'PRODUCT_MAIN'; next(); },
@@ -49,20 +41,22 @@ router.post(
     ImageController.uploadImage
 );
 
-// Upload Product Gallery Images (Step 2)
 router.post(
-    '/stores/:tenantId/:storeId/images/products/gallery',
-    uploadMultiple('images', 5),
+    '/:tenantId/:storeId/images/products/gallery',
+    // ✅ Raised from 5 to 20 to match the frontend's per-product image cap
+    // (Step2_ProductConfig.jsx maxImages = 20). Multer's .array() rejects
+    // every file past maxCount with "Unexpected field" — was silently
+    // breaking any product with more than 6 total images (1 main + 5+ gallery).
+    uploadMultiple('images', 20),
     handleMulterError,
     (req, res, next) => { req.imageType = 'PRODUCT_GALLERY'; next(); },
     validateMultipleImages,
     ImageController.uploadMultipleImages
 );
 
-// ==================== VARIANT IMAGES (STEP 2) ====================
-// Upload Variant Thumbnail
+// ==================== VARIANT IMAGES ====================
 router.post(
-    '/stores/:tenantId/:storeId/images/variants',
+    '/:tenantId/:storeId/images/variants',
     uploadSingle('image'),
     handleMulterError,
     (req, res, next) => { req.imageType = 'VARIANT'; next(); },
@@ -70,10 +64,9 @@ router.post(
     ImageController.uploadImage
 );
 
-// ==================== CATEGORY IMAGES (STEP 2) ====================
-// Upload Category Image
+// ==================== CATEGORY IMAGES ====================
 router.post(
-    '/stores/:tenantId/:storeId/images/categories',
+    '/:tenantId/:storeId/images/categories',
     uploadSingle('image'),
     handleMulterError,
     (req, res, next) => { req.imageType = 'CATEGORY'; next(); },
@@ -82,11 +75,9 @@ router.post(
 );
 
 // ==================== PRODUCT SPECIFIC ROUTES ====================
-// Get images for a specific product
-router.get('/stores/products/:productId/images', ImageController.getProductImages);
+router.get('/products/:productId/images', ImageController.getProductImages);
 
 // ==================== DELETE ROUTES ====================
-// Delete an image
 router.delete('/images/:imageId', ImageController.deleteImage);
 
 module.exports = router;

@@ -10,8 +10,15 @@ class ImageService {
     static async processAndSaveImage(file, imageType, tenantId, storeId, referenceId = null) {
         // Generate unique filename
         const timestamp = Date.now();
-        const extension = path.extname(file.originalname);
-        const uniqueFilename = `${imageType.toLowerCase()}_${timestamp}${extension}`;
+        // ✅ FIX: extension must match the ACTUAL output format, not the
+        // uploaded file's original extension. LOGO stays PNG; everything
+        // else (HERO, PRODUCT_MAIN, PRODUCT_GALLERY, VARIANT, CATEGORY) gets
+        // re-encoded to JPEG below regardless of what was uploaded — using
+        // the original extension here previously saved JPEG-encoded bytes
+        // under a .png filename, causing express.static to send the wrong
+        // Content-Type header (image/png for actual JPEG data).
+        const outputExtension = imageType === 'LOGO' ? '.png' : '.jpg';
+        const uniqueFilename = `${imageType.toLowerCase()}_${timestamp}${outputExtension}`;
         
         // Build storage path
         let folderPath;
@@ -68,9 +75,6 @@ class ImageService {
                     .jpeg({ quality: 85, progressive: true })
                     .toBuffer();
                 finalMimeType = 'image/jpeg';
-                // Update filename extension
-                const newFilename = uniqueFilename.replace(/\.png$/i, '.jpg');
-                // We'll handle this differently - let's just use the original extension
             } else {
                 processedBuffer = await sharp(file.buffer)
                     .jpeg({ quality: 85, progressive: true })
@@ -118,8 +122,13 @@ class ImageService {
         const savedImage = await StoreImage.create(imageData);
 
         // Return image URL
+        // ✅ FIX: server.js serves uploads at `/uploads`, not `/api/uploads`
+        // (app.use('/uploads', express.static(...))). relativePath already
+        // starts with "uploads/...", so prefixing with /api here produced a
+        // URL that always 404'd — images uploaded and saved fine, but never
+        // actually rendered anywhere they were displayed from stored URLs.
         const baseUrl = process.env.API_URL || `http://localhost:5002`;
-        const imageUrl = `${baseUrl}/api/${relativePath.replace(/\\/g, '/')}`;
+        const imageUrl = `${baseUrl}/${relativePath.replace(/\\/g, '/')}`;
 
         return {
             ...savedImage,
@@ -233,8 +242,10 @@ class ImageService {
 
     // Get image URL
     static getImageUrl(storeId, storagePath) {
+        // ✅ FIX: same /api prefix bug as processAndSaveImage above — server.js
+        // serves uploads at /uploads, not /api/uploads.
         const baseUrl = process.env.API_URL || `http://localhost:5002`;
-        return `${baseUrl}/api/${storagePath.replace(/\\/g, '/')}`;
+        return `${baseUrl}/${storagePath.replace(/\\/g, '/')}`;
     }
 }
 
