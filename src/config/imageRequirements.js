@@ -72,7 +72,7 @@ const IMAGE_REQUIREMENTS = {
             format: 'JPG or PNG',
             maxSize: '160 KB',
             aspectRatio: '1:1 (Square)',
-            hint: 'Additional product views (up to 5 images)'
+            hint: 'Additional product views (up to 20 images total per product, including main)'
         },
         validation: {
             minWidth: 390,

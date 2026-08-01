@@ -64,6 +64,9 @@ async function validateImage(file, imageType) {
     }
 
     // 4. File Size Validation
+    // ✅ Only enforce a maximum — real user files are rarely pixel-perfect
+    // or exactly within a narrow KB range, so the minimum-size check was
+    // rejecting legitimate small files. Removed per client request.
     if (file.size > validationRules.maxSize) {
         throw new Error(
             `File size exceeds ${(validationRules.maxSize / 1024).toFixed(0)}KB limit. ` +
@@ -71,14 +74,12 @@ async function validateImage(file, imageType) {
         );
     }
 
-    if (file.size < validationRules.minSize) {
-        throw new Error(
-            `File size is too small (${(file.size / 1024).toFixed(1)}KB). ` +
-            `Minimum size is ${(validationRules.minSize / 1024).toFixed(0)}KB`
-        );
-    }
-
-    // 5. Dimension Validation using Sharp
+    // 5. Dimension check using Sharp
+    // ✅ DIMENSION RANGE VALIDATION REMOVED (per client request) — only the
+    // format (MIME) and max file-size checks above are enforced now. We
+    // still read metadata below since processAndSaveImage/StoreImage store
+    // width/height, but we no longer reject uploads for not matching an
+    // exact px range.
     let metadata;
     try {
         metadata = await sharp(file.buffer).metadata();
@@ -88,32 +89,7 @@ async function validateImage(file, imageType) {
 
     const { width, height } = metadata;
 
-    // Check if dimensions are within range
-    if (width < validationRules.minWidth || width > validationRules.maxWidth) {
-        throw new Error(
-            `Image width should be around ${validationRules.minWidth}px. ` +
-            `Current: ${width}px (Allowed: ${validationRules.minWidth}-${validationRules.maxWidth}px)`
-        );
-    }
-
-    if (height < validationRules.minHeight || height > validationRules.maxHeight) {
-        throw new Error(
-            `Image height should be around ${validationRules.minHeight}px. ` +
-            `Current: ${height}px (Allowed: ${validationRules.minHeight}-${validationRules.maxHeight}px)`
-        );
-    }
-
-    // 6. Aspect Ratio Check (extra safety)
-    const expectedRatio = validationRules.minWidth / validationRules.minHeight;
-    const actualRatio = width / height;
-    const tolerance = 0.05; // 5% tolerance
-    
-    if (Math.abs(actualRatio - expectedRatio) > tolerance) {
-        throw new Error(
-            `Invalid aspect ratio. Expected ${expectedRatio.toFixed(2)}:1, ` +
-            `got ${actualRatio.toFixed(2)}:1`
-        );
-    }
+    // ✅ ASPECT RATIO CHECK REMOVED HERE TO FIX 400 ERROR
 
     return {
         valid: true,
@@ -137,7 +113,10 @@ async function validateSingleImage(req, res, next) {
             });
         }
 
-        const imageType = req.body.imageType || req.query.imageType;
+        // The route middleware sets req.imageType (e.g. LOGO, HERO) based on the
+        // endpoint that was hit. Fall back to body/query for callers that still
+        // send it explicitly (e.g. direct API/Postman usage).
+        const imageType = req.imageType || req.body.imageType || req.query.imageType;
         if (!imageType) {
             return res.status(400).json({
                 success: false,
@@ -168,7 +147,8 @@ async function validateMultipleImages(req, res, next) {
             });
         }
 
-        const imageType = req.body.imageType || req.query.imageType;
+        // Same fix as validateSingleImage: prefer req.imageType set by the route.
+        const imageType = req.imageType || req.body.imageType || req.query.imageType;
         if (!imageType) {
             return res.status(400).json({
                 success: false,

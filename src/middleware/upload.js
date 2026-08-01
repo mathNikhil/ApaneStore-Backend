@@ -27,7 +27,7 @@ const upload = multer({
     storage: storage,
     limits: {
         fileSize: 5 * 1024 * 1024, // 5MB max initial limit
-        files: 10, // Max 10 files per request
+        files: 20, // ✅ Raised from 10 to match the 20-image-per-product cap
     },
     fileFilter: fileFilter,
 });
@@ -54,7 +54,7 @@ const handleMulterError = (err, req, res, next) => {
         if (err.code === 'LIMIT_FILE_COUNT') {
             return res.status(400).json({
                 success: false,
-                error: 'Too many files. Maximum is 10 files.'
+                error: 'Too many files. Maximum is 20 files.'
             });
         }
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {

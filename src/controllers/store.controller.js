@@ -15,6 +15,8 @@ class StoreController {
                 fonts,
                 baseFontSize,
                 categories,
+                productBanner,
+                enableImageZoom,
                 cartSettings,
                 paymentSettings,
                 addressSettings,
@@ -43,7 +45,7 @@ class StoreController {
 
             const config = {
                 brand: { storeName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
-                products: { categories },
+                products: { categories, banner: productBanner, enableImageZoom },
                 cart: cartSettings,
                 payment: paymentSettings,
                 address: addressSettings,
@@ -82,7 +84,7 @@ class StoreController {
         }
     }
 
-    // Update store
+    // Update store (FIXED 409 Conflict)
     static async update(req, res) {
         try {
             const { id } = req.params;
@@ -96,6 +98,8 @@ class StoreController {
                 fonts,
                 baseFontSize,
                 categories,
+                productBanner,
+                enableImageZoom,
                 cartSettings,
                 paymentSettings,
                 addressSettings,
@@ -107,6 +111,7 @@ class StoreController {
                 lastBuilderStep,
             } = req.body;
 
+            // 1. Check if store exists
             const checkResult = await pool.query(
                 'SELECT * FROM stores WHERE id = $1 AND tenant_id = $2',
                 [id, tenantId]
@@ -119,8 +124,29 @@ class StoreController {
                 });
             }
 
-            let subdomain = checkResult.rows[0].subdomain;
-            if (storeName && storeName !== checkResult.rows[0].store_name) {
+            const existingStore = checkResult.rows[0];
+
+            // 2. VALIDATION: If the name changed, check for duplicates
+            let finalStoreName = existingStore.store_name;
+            let subdomain = existingStore.subdomain;
+
+            if (storeName && storeName.trim() !== '' && storeName !== existingStore.store_name) {
+                // Check if this new name is taken by ANOTHER store
+                const duplicateCheck = await pool.query(
+                    'SELECT id FROM stores WHERE store_name = $1 AND id != $2 AND tenant_id = $3',
+                    [storeName, id, tenantId]
+                );
+
+                if (duplicateCheck.rows.length > 0) {
+                    return res.status(409).json({
+                        success: false,
+                        error: 'This store name is already taken. Please choose a different name.'
+                    });
+                }
+
+                finalStoreName = storeName;
+                
+                // Regenerate subdomain
                 subdomain = storeName
                     .toLowerCase()
                     .trim()
@@ -129,9 +155,10 @@ class StoreController {
                     .replace(/^-|-$/g, '');
             }
 
+            // 3. Build Config
             const config = {
-                brand: { storeName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
-                products: { categories },
+                brand: { storeName: finalStoreName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
+                products: { categories, banner: productBanner, enableImageZoom },
                 cart: cartSettings,
                 payment: paymentSettings,
                 address: addressSettings,
@@ -141,6 +168,7 @@ class StoreController {
                 images,
             };
 
+            // 4. Execute update
             const result = await pool.query(
                 `UPDATE stores
                  SET store_name = $1,
@@ -151,7 +179,7 @@ class StoreController {
                      updated_at = NOW()
                  WHERE id = $6
                  RETURNING id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at`,
-                [storeName || checkResult.rows[0].store_name, subdomain, JSON.stringify(config), status || 'draft', lastBuilderStep || 1, id]
+                [finalStoreName, subdomain, JSON.stringify(config), status || 'draft', lastBuilderStep || 1, id]
             );
 
             logger.info(`✅ Store updated: ${id}`);
@@ -209,7 +237,7 @@ class StoreController {
             const tenantId = req.tenantId;
 
             const result = await pool.query(
-                `SELECT id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at
+                `SELECT id, tenant_id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at
                  FROM stores
                  WHERE id = $1 AND tenant_id = $2`,
                 [id, tenantId]

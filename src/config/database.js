@@ -76,6 +76,44 @@ const runColumnMigrations = async () => {
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(store_id, panel_type)
         )`,
+        // ✅ CORRECTION: store_images was originally created with tenant_id/store_id
+        // as UUID, matching schema.sql — but the *live* database actually uses plain
+        // integer IDs for tenants/stores (schema.sql is aspirational and drifted from
+        // what's really running; confirmed by "invalid input syntax for type uuid: 2"
+        // errors using real tenant/store IDs). This one-time check drops the
+        // wrongly-typed table (it's guaranteed empty — every insert into it has been
+        // failing) so the correct-typed CREATE TABLE below can recreate it. Once
+        // recreated, this condition is false on every future restart and does nothing.
+        `DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'store_images' AND column_name = 'tenant_id' AND data_type = 'uuid'
+            ) THEN
+                DROP TABLE store_images CASCADE;
+            END IF;
+        END $$`,
+        `CREATE TABLE IF NOT EXISTS store_images (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id INTEGER NOT NULL,
+            store_id INTEGER NOT NULL,
+            image_type VARCHAR(50) NOT NULL,
+            reference_id INTEGER,
+            original_filename VARCHAR(255),
+            storage_path VARCHAR(500) NOT NULL,
+            file_size BIGINT,
+            width INTEGER,
+            height INTEGER,
+            mime_type VARCHAR(100),
+            is_active BOOLEAN DEFAULT true,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_store_images_tenant ON store_images(tenant_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_store_images_store ON store_images(store_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_store_images_type ON store_images(image_type)`,
+        `CREATE INDEX IF NOT EXISTS idx_store_images_reference ON store_images(reference_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_store_images_active ON store_images(is_active)`,
     ];
 
     let applied = 0;

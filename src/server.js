@@ -65,14 +65,18 @@ app.get('/', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
+
+// ✅ CRITICAL FIX: Mount Image Routes BEFORE Store Routes
+// Because imageRoutes starts with /stores, Express must check it FIRST.
+app.use('/api/stores', imageRoutes); 
 app.use('/api/stores', storeRoutes);
+
 app.use('/api/products', productRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/store/:storeId/admin/orders', storeAdminOrdersRoutes);
 app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
 app.use('/api/store/:storeId/auth', customerRoutes);
 app.use('/api/public', publicRoutes);
-app.use('/api/images', imageRoutes);
 app.use('/api/tracking', trackingRoutes);
 
 // ============================================================
