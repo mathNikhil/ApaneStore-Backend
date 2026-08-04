@@ -2,19 +2,12 @@ const express = require('express');
 const router = express.Router();
 const trackingController = require('../controllers/trackingController');
 
-// ✅ REMOVED: The auth middleware that was causing the error
-// We'll add proper auth later
-
-// Courier list - public
+// ✅ Only the public courier list lives here now — everything that reads
+// or writes actual tracking data has moved to the already-authenticated
+// store-admin orders routes (see routes/store-admin/orders.routes.js).
+// The old version of this file had those routes with NO auth at all and
+// a spoofable req.body.storeId (defaulting to store 1 if omitted) —
+// meaning anyone could tamper with any store's tracking data.
 router.get('/couriers', trackingController.getCourierList);
-
-// Store admin routes - no auth for now (add later)
-router.post('/add', trackingController.addTracking);
-router.post('/bulk-add', trackingController.bulkAddTracking);
-router.get('/store/:storeId', trackingController.getStoreTracking);
-router.post('/refresh/:orderId', trackingController.refreshTracking);
-
-// Customer routes
-router.get('/:orderId', trackingController.getTracking);
 
 module.exports = router;

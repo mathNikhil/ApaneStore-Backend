@@ -12,8 +12,13 @@ const storeRoutes = require('./routes/store.routes');
 const productRoutes = require('./routes/product.routes');
 const adminRoutes = require('./routes/admin.routes');
 const storeAdminOrdersRoutes = require('./routes/store-admin/orders.routes');
+const storeAdminCouriersRoutes = require('./routes/store-admin/couriers.routes');
 const storeAdminCustomersRoutes = require('./routes/store-admin/customers.routes');
+const storeAdminSessionRoutes = require('./routes/storeAdminSession.routes');
+const pricingRoutes = require('./routes/pricing.routes');
+const termsRoutes = require('./routes/terms.routes');
 const customerRoutes = require('./routes/customer.routes');
+const customerOrderRoutes = require('./routes/customerOrder.routes');
 const publicRoutes = require('./routes/public.routes');
 const imageRoutes = require('./routes/imageRoutes');
 const trackingRoutes = require('./routes/tracking.routes');
@@ -30,7 +35,13 @@ app.use(helmet({
 }));
 app.use(cors());
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
+// ✅ Also parse text/plain as JSON — specifically for navigator.sendBeacon
+// calls (e.g. Store Admin's logout-on-tab-close), which can't use
+// application/json for a cross-origin request without triggering a CORS
+// preflight that sendBeacon isn't able to perform. text/plain is
+// CORS-simple, so the beacon can actually deliver it; this just tells the
+// JSON parser to also look at that content type.
+app.use(express.json({ limit: '10mb', type: ['application/json', 'text/plain'] }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded images
@@ -74,8 +85,13 @@ app.use('/api/stores', storeRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/store/:storeId/admin/orders', storeAdminOrdersRoutes);
+app.use('/api/store/:storeId/admin/couriers', storeAdminCouriersRoutes);
 app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
+app.use('/api/store-admin', storeAdminSessionRoutes);
+app.use('/api/pricing-plans', pricingRoutes);
+app.use('/api/terms', termsRoutes);
 app.use('/api/store/:storeId/auth', customerRoutes);
+app.use('/api/store/:storeId/orders', customerOrderRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/tracking', trackingRoutes);
 
@@ -83,6 +99,8 @@ app.use('/api/tracking', trackingRoutes);
 // ✅ START CRON JOB FOR DRAFT STORE CLEANUP (Added)
 // ============================================================
 const scheduleCleanupJob = require('./jobs/storeCleanupJob');
+require('./jobs/trackingJob'); // ✅ was never actually required anywhere before — cron.schedule() runs as a side effect of this require
+require('./jobs/subscriptionExpiryJob');
 scheduleCleanupJob();
 
 // 404 handler
@@ -114,6 +132,7 @@ app.listen(PORT, () => {
     console.log(`📋 Store Admin Orders: http://localhost:${PORT}/api/store/:storeId/admin/orders`);
     console.log(`👤 Store Admin Customers: http://localhost:${PORT}/api/store/:storeId/admin/customers`);
     console.log(`🕐 Draft store cleanup job scheduled (daily at 2:00 AM)`);
+    console.log(`📦 Courier tracking auto-update job scheduled (every 60 minutes)`);
 });
 
 module.exports = app;

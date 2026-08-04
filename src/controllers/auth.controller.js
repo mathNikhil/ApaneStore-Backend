@@ -70,6 +70,14 @@ const AuthController = {
                 });
             }
 
+            // ✅ Block hidden tenants before issuing a token
+            if (user.status === 'hidden') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Your account has been disabled. Please contact support.'
+                });
+            }
+
             const JWT_SECRET = process.env.JWT_SECRET;
             const token = jwt.sign(
                 { 
@@ -114,6 +122,21 @@ const AuthController = {
                 return res.status(400).json({
                     success: false,
                     message: 'Invalid phone number'
+                });
+            }
+
+            // ✅ Block hidden tenants right here, before an OTP is ever sent —
+            // otherwise they'd still see the OTP entry screen and only get
+            // blocked after typing a code in, which is confusing. A brand-new
+            // phone number (no tenant row yet) is fine to proceed as normal.
+            const existing = await pool.query(
+                'SELECT status FROM tenants WHERE phone = $1',
+                [phone]
+            );
+            if (existing.rows.length > 0 && existing.rows[0].status === 'hidden') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Your account has been disabled. Please contact support.'
                 });
             }
 
@@ -181,6 +204,14 @@ const AuthController = {
                     tenant = insertResult.rows[0];
                 } else {
                     tenant = result.rows[0];
+
+                    // ✅ Block hidden tenants before issuing a token
+                    if (tenant.status === 'hidden') {
+                        return res.status(403).json({
+                            success: false,
+                            message: 'Your account has been disabled. Please contact support.'
+                        });
+                    }
                 }
 
                 // Generate JWT token with both userId and tenantId

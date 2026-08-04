@@ -49,15 +49,29 @@ cron.schedule('*/60 * * * *', async () => {
                     
                     console.log(`📬 Updated tracking for ${order.order_id}: ${order.last_status} → ${status.status}`);
                     
-                    // If delivered, update order status
+                    // ✅ FIX: was UPDATE orders SET order_status = ... — that
+                    // column has never existed on the real orders table (it's
+                    // `status`), so this silently failed with a SQL error
+                    // every single time the automatic job tried to mark an
+                    // order delivered. Only the manual "Refresh Now" button
+                    // (fixed separately) ever actually worked before this.
                     if (status.status === 'delivered') {
-                        await db.query(
+                        const orderResult = await db.query(
                             `UPDATE orders 
-                             SET order_status = 'delivered', 
-                                 delivered_at = NOW()
-                             WHERE order_id = $1`,
+                             SET status = 'delivered', 
+                                 delivered_at = NOW(),
+                                 updated_at = NOW()
+                             WHERE order_id = $1
+                             RETURNING id`,
                             [order.order_id]
                         );
+                        if (orderResult.rows.length > 0) {
+                            await db.query(
+                                `INSERT INTO order_status_history (order_id, status, changed_by, notes)
+                                 VALUES ($1, 'delivered', 'courier-tracking', 'Auto-detected as delivered via courier tracking')`,
+                                [orderResult.rows[0].id]
+                            );
+                        }
                         console.log(`✅ Order ${order.order_id} marked as delivered!`);
                     }
                 } else {
