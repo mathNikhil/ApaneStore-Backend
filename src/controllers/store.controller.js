@@ -155,17 +155,36 @@ class StoreController {
                     .replace(/^-|-$/g, '');
             }
 
-            // 3. Build Config
+            // 3. Build Config — merge with the EXISTING config rather than
+            // rebuilding from scratch, so a partial update (like a
+            // publish-status-only save) can't wipe out fields it didn't
+            // send. Each field falls back to whatever's already saved.
+            const existingConfig = existingStore.config || {};
+            const existingBrand = existingConfig.brand || {};
+            const existingProducts = existingConfig.products || {};
+
             const config = {
-                brand: { storeName: finalStoreName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
-                products: { categories, banner: productBanner, enableImageZoom },
-                cart: cartSettings,
-                payment: paymentSettings,
-                address: addressSettings,
-                order: orderSettings,
-                profile: profileSettings,
-                return: returnSettings,
-                images,
+                brand: {
+                    storeName: finalStoreName,
+                    tagline: tagline !== undefined ? tagline : existingBrand.tagline,
+                    logoUrl: logoUrl !== undefined ? logoUrl : existingBrand.logoUrl,
+                    bannerUrl: bannerUrl !== undefined ? bannerUrl : existingBrand.bannerUrl,
+                    brandColors: brandColors !== undefined ? brandColors : existingBrand.brandColors,
+                    fonts: fonts !== undefined ? fonts : existingBrand.fonts,
+                    baseFontSize: baseFontSize !== undefined ? baseFontSize : existingBrand.baseFontSize,
+                },
+                products: {
+                    categories: categories !== undefined ? categories : existingProducts.categories,
+                    banner: productBanner !== undefined ? productBanner : existingProducts.banner,
+                    enableImageZoom: enableImageZoom !== undefined ? enableImageZoom : existingProducts.enableImageZoom,
+                },
+                cart: cartSettings !== undefined ? cartSettings : existingConfig.cart,
+                payment: paymentSettings !== undefined ? paymentSettings : existingConfig.payment,
+                address: addressSettings !== undefined ? addressSettings : existingConfig.address,
+                order: orderSettings !== undefined ? orderSettings : existingConfig.order,
+                profile: profileSettings !== undefined ? profileSettings : existingConfig.profile,
+                return: returnSettings !== undefined ? returnSettings : existingConfig.return,
+                images: images !== undefined ? images : existingConfig.images,
             };
 
             // 4. Execute update
@@ -179,7 +198,7 @@ class StoreController {
                      updated_at = NOW()
                  WHERE id = $6
                  RETURNING id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at`,
-                [finalStoreName, subdomain, JSON.stringify(config), status || 'draft', lastBuilderStep || 1, id]
+                [finalStoreName, subdomain, JSON.stringify(config), status || null, lastBuilderStep || 1, id]
             );
 
             logger.info(`✅ Store updated: ${id}`);

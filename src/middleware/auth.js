@@ -21,7 +21,7 @@ const authenticate = async (req, res, next) => {
         
         // Check if tenant exists
         const result = await pool.query(
-            'SELECT id, tenant_id, company_name, email, subscription_tier FROM tenants WHERE id = $1 AND is_verified = true',
+            'SELECT id, tenant_id, company_name, email, subscription_tier, status FROM tenants WHERE id = $1 AND is_verified = true',
             [decoded.tenantId]
         );
         
@@ -29,6 +29,17 @@ const authenticate = async (req, res, next) => {
             return res.status(401).json({
                 success: false,
                 error: 'User not found or not verified'
+            });
+        }
+
+        // ✅ Block hidden tenants from using the dashboard at all — this
+        // check runs on every request, so it also cuts off access for a
+        // tenant who was hidden after already logging in (their existing
+        // token would otherwise keep working for up to 7 days).
+        if (result.rows[0].status === 'hidden') {
+            return res.status(403).json({
+                success: false,
+                error: 'Your account has been disabled. Please contact support.'
             });
         }
         
