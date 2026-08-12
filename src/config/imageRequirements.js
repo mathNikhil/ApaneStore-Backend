@@ -124,6 +124,30 @@ const IMAGE_REQUIREMENTS = {
             allowedMimeTypes: ['image/png', 'image/jpeg'],
             allowTolerance: true,
         }
+    },
+    // ✅ Return proof photos — a customer's own evidence photo (damaged
+    // item, wrong item, etc.), taken on whatever phone camera they have.
+    // Deliberately looser bounds than a branded thumbnail like CATEGORY —
+    // no fixed aspect ratio, larger size allowed for real detail.
+    RETURN: {
+        display: {
+            title: 'Return Photo',
+            dimensions: 'Any size',
+            format: 'JPG, PNG, WEBP, or HEIC',
+            maxSize: '5 MB',
+            aspectRatio: 'Any',
+            hint: 'Photo showing the issue with your order'
+        },
+        validation: {
+            minWidth: 50,
+            maxWidth: 8000,
+            minHeight: 50,
+            maxHeight: 8000,
+            minSize: 1 * 1024,
+            maxSize: 5 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'],
+            allowTolerance: true,
+        }
     }
 };
 

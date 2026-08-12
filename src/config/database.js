@@ -98,7 +98,7 @@ const runColumnMigrations = async () => {
             tenant_id INTEGER NOT NULL,
             store_id INTEGER NOT NULL,
             image_type VARCHAR(50) NOT NULL,
-            reference_id BIGINT,
+            reference_id TEXT,
             original_filename VARCHAR(255),
             storage_path VARCHAR(500) NOT NULL,
             file_size BIGINT,
@@ -121,6 +121,19 @@ const runColumnMigrations = async () => {
                 WHERE table_name = 'store_images' AND column_name = 'reference_id' AND data_type = 'integer'
             ) THEN
                 ALTER TABLE store_images ALTER COLUMN reference_id TYPE BIGINT;
+            END IF;
+        END $$`,
+        // ✅ BIGINT was still wrong — it can hold huge numbers, but return
+        // photos need to reference a UUID (the return record's id), which
+        // isn't a number at all. Widens to TEXT, which safely holds both
+        // the numeric IDs products/categories use and UUIDs.
+        `DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'store_images' AND column_name = 'reference_id' AND data_type = 'bigint'
+            ) THEN
+                ALTER TABLE store_images ALTER COLUMN reference_id TYPE TEXT USING reference_id::TEXT;
             END IF;
         END $$`,
         `CREATE INDEX IF NOT EXISTS idx_store_images_tenant ON store_images(tenant_id)`,
@@ -310,6 +323,7 @@ const runColumnMigrations = async () => {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE INDEX IF NOT EXISTS idx_otp_audit_phone_purpose ON otp_audit(phone, purpose)`,
+        `ALTER TABLE otp_audit ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45)`,
         // ✅ Same UUID-vs-INTEGER drift as before — schema.sql declares
         // orders.store_id as UUID, but the live stores.id is INTEGER. No
         // real order has ever existed (checkout only updated local browser
@@ -348,6 +362,13 @@ const runColumnMigrations = async () => {
         )`,
         `CREATE INDEX IF NOT EXISTS idx_orders_store ON orders(store_id)`,
         `CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)`,
+        // ✅ Only relevant while a store is on the COD+UPI tier (no real
+        // payment gateway integrated yet) — captures the customer's own
+        // UPI ID at checkout so an operator can manually cross-check their
+        // own bank/UPI app for a matching payment before confirming the
+        // order. Once a real gateway (Cashfree/Stripe) is active, this
+        // field simply goes unused — that flow verifies automatically.
+        `ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_upi_id VARCHAR(100)`,
         // ✅ Referenced by store-admin/orders.controller.js (getById's JOIN,
         // updateStatus's INSERT) but was never actually defined anywhere —
         // not in schema.sql, not in this migration file. Both of those
@@ -402,6 +423,68 @@ const runColumnMigrations = async () => {
             UNIQUE(store_id, courier_name)
         )`,
         `CREATE INDEX IF NOT EXISTS idx_store_couriers_store ON store_couriers(store_id)`,
+        // ✅ Store Admin's own customer search query already did
+        // `email ILIKE ...`, meaning it always expected this column to
+        // exist — it never actually did, since nothing ever wrote a real
+        // customer email anywhere. Would have thrown a SQL error the
+        // moment anyone actually searched by email.
+        `ALTER TABLE customers ADD COLUMN IF NOT EXISTS email VARCHAR(255)`,
+        // ✅ Real customer address book — replaces what was previously
+        // entirely local browser state (a single hardcoded sample address,
+        // "Amit Sharma" / Gurgaon, that every customer saw regardless of
+        // what they actually entered, never sent to the backend at all).
+        `CREATE TABLE IF NOT EXISTS customer_addresses (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+            store_id INTEGER NOT NULL,
+            label VARCHAR(50) DEFAULT 'Home',
+            recipient_name VARCHAR(100),
+            recipient_mobile VARCHAR(20),
+            address_line1 VARCHAR(255),
+            address_line2 VARCHAR(255),
+            city VARCHAR(100),
+            state VARCHAR(100),
+            pincode VARCHAR(10),
+            landmark VARCHAR(255),
+            is_default BOOLEAN DEFAULT false,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_customer_addresses_customer ON customer_addresses(customer_id)`,
+        // ✅ Return requests — a real, separate record linked to its parent
+        // order (not bolted onto the orders table). UNIQUE(order_id) means
+        // an order can have at most one return, ever — matches "rejection
+        // is final, no resubmission" directly in the schema rather than
+        // only in application logic.
+        // return_shipping_method is copied from the store's config AT
+        // REQUEST TIME, so a later change to the store's setting never
+        // retroactively changes an already-in-flight return.
+        `CREATE TABLE IF NOT EXISTS order_returns (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            return_id VARCHAR(20) UNIQUE NOT NULL,
+            order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+            store_id INTEGER NOT NULL,
+            reason VARCHAR(50) NOT NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'requested',
+            reject_reason TEXT,
+            return_shipping_method VARCHAR(20),
+            customer_courier_name VARCHAR(100),
+            customer_tracking_number VARCHAR(100),
+            courier_name VARCHAR(100),
+            tracking_number VARCHAR(100),
+            pickup_date DATE,
+            operator_comment TEXT,
+            requested_at TIMESTAMP DEFAULT NOW(),
+            approved_at TIMESTAMP,
+            rejected_at TIMESTAMP,
+            parcel_received_at TIMESTAMP,
+            refund_initiated_at TIMESTAMP,
+            refunded_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(order_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_order_returns_store ON order_returns(store_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_order_returns_status ON order_returns(status)`,
         `CREATE TABLE IF NOT EXISTS tracking_history (
             id SERIAL PRIMARY KEY,
             tracking_id INTEGER REFERENCES order_tracking(id) ON DELETE CASCADE,

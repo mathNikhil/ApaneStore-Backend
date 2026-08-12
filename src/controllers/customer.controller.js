@@ -19,8 +19,9 @@ class CustomerController {
             // OTP just proves phone ownership; which store the resulting
             // session belongs to is decided by loginOrRegisterByPhone below.
             // (purpose is VARCHAR(20), so it can't embed a storeId UUID.)
-            const result = await OTPService.sendOTP(phone, null, 'customer_login');
-            res.status(result.success ? 200 : 500).json(result);
+            const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
+            const result = await OTPService.sendOTP(phone, null, 'customer_login', ipAddress);
+            res.status(result.success ? 200 : (result.rateLimited ? 429 : 500)).json(result);
         } catch (error) {
             logger.error('❌ Customer send OTP error:', error);
             res.status(500).json({

@@ -118,9 +118,18 @@ class StoreAdminOrdersController {
 
             const oldStatus = checkResult.rows[0].status;
 
+            // ✅ FIX: these were never set on a manual status change before —
+            // only the courier auto-tracking path set them. Without a real
+            // delivered_at, the return-window check has nothing to
+            // calculate from and always fails closed (looks "expired"
+            // immediately, even for a same-day delivery).
+            const timestampColumn = status === 'delivered' ? ', delivered_at = CURRENT_TIMESTAMP'
+                : status === 'out_for_delivery' ? ', shipped_at = CURRENT_TIMESTAMP'
+                : '';
+
             // Update order status
             await pool.query(
-                'UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                `UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP${timestampColumn} WHERE id = $2`,
                 [status, orderId]
             );
 

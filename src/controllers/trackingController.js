@@ -215,7 +215,7 @@ class TrackingController {
             const { customerId } = req.customer;
 
             const orderResult = await pool.query(
-                'SELECT order_id FROM orders WHERE id = $1 AND store_id = $2 AND customer_id = $3',
+                'SELECT order_id FROM orders WHERE order_id = $1 AND store_id = $2 AND customer_id = $3',
                 [orderId, storeId, customerId]
             );
             if (orderResult.rows.length === 0) {

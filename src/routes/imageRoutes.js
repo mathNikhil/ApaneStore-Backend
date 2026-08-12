@@ -74,6 +74,19 @@ router.post(
     ImageController.uploadImage
 );
 
+// ==================== RETURN PHOTOS ====================
+// ✅ Reuses the exact same upload pipeline as product/category images —
+// just a new imageType label. reference_id is the return record's own id
+// (the return is created first, then photos are uploaded against it).
+router.post(
+    '/:tenantId/:storeId/images/returns',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'RETURN'; next(); },
+    validateSingleImage,
+    ImageController.uploadImage
+);
+
 // ==================== PRODUCT SPECIFIC ROUTES ====================
 router.get('/products/:productId/images', ImageController.getProductImages);
 
