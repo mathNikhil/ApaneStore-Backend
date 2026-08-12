@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const logger = require('../config/logger');
+const { generateSlug } = require('../utils/slug');
 
 class StoreController {
     // Create a new store
@@ -17,6 +18,7 @@ class StoreController {
                 categories,
                 productBanner,
                 enableImageZoom,
+                enableProductSearch,
                 cartSettings,
                 paymentSettings,
                 addressSettings,
@@ -33,19 +35,15 @@ class StoreController {
                 });
             }
 
-            // Generate subdomain from store name
-            const subdomain = storeName
-                .toLowerCase()
-                .trim()
-                .replace(/[^a-z0-9]/g, '-')
-                .replace(/-+/g, '-')
-                .replace(/^-|-$/g, '');
+            // Generate subdomain from store name — reserved words and the
+            // empty-slug edge case are handled inside generateSlug().
+            const subdomain = generateSlug(storeName);
 
             const storeId = `STORE_${Date.now()}`;
 
             const config = {
                 brand: { storeName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
-                products: { categories, banner: productBanner, enableImageZoom },
+                products: { categories, banner: productBanner, enableImageZoom, enableProductSearch },
                 cart: cartSettings,
                 payment: paymentSettings,
                 address: addressSettings,
@@ -100,6 +98,7 @@ class StoreController {
                 categories,
                 productBanner,
                 enableImageZoom,
+                enableProductSearch,
                 cartSettings,
                 paymentSettings,
                 addressSettings,
@@ -126,6 +125,16 @@ class StoreController {
 
             const existingStore = checkResult.rows[0];
 
+            // 🐛 TEMP DEBUG — catches any request that explicitly sends a
+            // status value, from any caller, anywhere in the app. If a
+            // store mysteriously reverts to draft again, this line tells
+            // you definitively whether THIS endpoint caused it, and what
+            // value was sent. Remove once the mystery draft-reset is
+            // confirmed fixed and hasn't recurred for a while.
+            if (status !== undefined) {
+                console.log(`🔍 store.update() received explicit status="${status}" for store ${id} (was "${existingStore.status}") at ${new Date().toISOString()}`);
+            }
+
             // 2. VALIDATION: If the name changed, check for duplicates
             let finalStoreName = existingStore.store_name;
             let subdomain = existingStore.subdomain;
@@ -145,14 +154,16 @@ class StoreController {
                 }
 
                 finalStoreName = storeName;
-                
-                // Regenerate subdomain
-                subdomain = storeName
-                    .toLowerCase()
-                    .trim()
-                    .replace(/[^a-z0-9]/g, '-')
-                    .replace(/-+/g, '-')
-                    .replace(/^-|-$/g, '');
+
+                // 🔒 Subdomain lock: once a store is published, its
+                // subdomain must not change even if the tenant renames the
+                // store — otherwise a live, already-shared URL would break
+                // silently on a routine content edit. Renaming is still
+                // allowed (finalStoreName updates above); only the
+                // subdomain itself is frozen while live.
+                if (existingStore.status !== 'published') {
+                    subdomain = generateSlug(storeName);
+                }
             }
 
             // 3. Build Config — merge with the EXISTING config rather than
@@ -177,6 +188,7 @@ class StoreController {
                     categories: categories !== undefined ? categories : existingProducts.categories,
                     banner: productBanner !== undefined ? productBanner : existingProducts.banner,
                     enableImageZoom: enableImageZoom !== undefined ? enableImageZoom : existingProducts.enableImageZoom,
+                    enableProductSearch: enableProductSearch !== undefined ? enableProductSearch : existingProducts.enableProductSearch,
                 },
                 cart: cartSettings !== undefined ? cartSettings : existingConfig.cart,
                 payment: paymentSettings !== undefined ? paymentSettings : existingConfig.payment,

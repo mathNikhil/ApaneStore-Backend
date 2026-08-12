@@ -42,6 +42,17 @@ class ImageService {
                 throw new Error('Category ID is required for category images');
             }
             folderPath = `tenants/${tenantId}/stores/${storeId}/categories/${referenceId}`;
+        } else if (imageType === 'RETURN') {
+            // ✅ This branch was missing entirely — RETURN was added to
+            // validation config, routes, and the controller call, but
+            // never here, so every return-photo upload threw "Unknown
+            // image type: RETURN" before ever reaching the database,
+            // regardless of the UUID/reference_id/format fixes applied
+            // elsewhere in this chain.
+            if (!referenceId) {
+                throw new Error('Return ID is required for return images');
+            }
+            folderPath = `tenants/${tenantId}/stores/${storeId}/returns/${referenceId}`;
         } else {
             throw new Error(`Unknown image type: ${imageType}`);
         }
@@ -83,7 +94,7 @@ class ImageService {
             }
         }
         // For product images - use JPEG with good quality
-        else if (['PRODUCT_MAIN', 'PRODUCT_GALLERY', 'VARIANT', 'CATEGORY'].includes(imageType)) {
+        else if (['PRODUCT_MAIN', 'PRODUCT_GALLERY', 'VARIANT', 'CATEGORY', 'RETURN'].includes(imageType)) {
             if (file.mimetype === 'image/png') {
                 processedBuffer = await sharp(file.buffer)
                     .jpeg({ quality: 80, progressive: true })

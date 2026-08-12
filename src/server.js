@@ -13,12 +13,14 @@ const productRoutes = require('./routes/product.routes');
 const adminRoutes = require('./routes/admin.routes');
 const storeAdminOrdersRoutes = require('./routes/store-admin/orders.routes');
 const storeAdminCouriersRoutes = require('./routes/store-admin/couriers.routes');
+const storeAdminReturnsRoutes = require('./routes/store-admin/returns.routes');
 const storeAdminCustomersRoutes = require('./routes/store-admin/customers.routes');
 const storeAdminSessionRoutes = require('./routes/storeAdminSession.routes');
 const pricingRoutes = require('./routes/pricing.routes');
 const termsRoutes = require('./routes/terms.routes');
 const customerRoutes = require('./routes/customer.routes');
 const customerOrderRoutes = require('./routes/customerOrder.routes');
+const customerProfileRoutes = require('./routes/customerProfile.routes');
 const publicRoutes = require('./routes/public.routes');
 const imageRoutes = require('./routes/imageRoutes');
 const trackingRoutes = require('./routes/tracking.routes');
@@ -27,6 +29,12 @@ const trackingRoutes = require('./routes/tracking.routes');
 require('./config/database');
 
 const app = express();
+
+// ✅ Needed for req.ip to reflect the real visitor, not the proxy, once
+// this runs behind nginx/a load balancer/Cloudflare — otherwise every
+// request looks like it's from the same IP, which would silently break
+// the per-IP OTP rate limiting the moment this goes into production.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5002;
 
 // Middleware
@@ -82,16 +90,25 @@ app.use('/api/tenants', tenantRoutes);
 app.use('/api/stores', imageRoutes); 
 app.use('/api/stores', storeRoutes);
 
+// Public webhook — Cashfree calls this directly with its own signature,
+// never a tenant JWT, so it must NOT sit behind authenticate middleware.
+// 🔧 TODO: add signature verification here once real Cashfree credentials
+// are wired — see PaymentGatewayController.cashfreeKycWebhook.
+const PaymentGatewayController = require('./controllers/paymentGateway.controller');
+app.post('/api/webhooks/cashfree/kyc-status', PaymentGatewayController.cashfreeKycWebhook);
+
 app.use('/api/products', productRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/store/:storeId/admin/orders', storeAdminOrdersRoutes);
 app.use('/api/store/:storeId/admin/couriers', storeAdminCouriersRoutes);
+app.use('/api/store/:storeId/admin/returns', storeAdminReturnsRoutes);
 app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
 app.use('/api/store-admin', storeAdminSessionRoutes);
 app.use('/api/pricing-plans', pricingRoutes);
 app.use('/api/terms', termsRoutes);
 app.use('/api/store/:storeId/auth', customerRoutes);
 app.use('/api/store/:storeId/orders', customerOrderRoutes);
+app.use('/api/store/:storeId/customers/me', customerProfileRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/tracking', trackingRoutes);
 

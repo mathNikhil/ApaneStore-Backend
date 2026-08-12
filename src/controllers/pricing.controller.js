@@ -8,8 +8,14 @@ const PricingController = {
     // GET /api/pricing-plans
     getAll: async (req, res) => {
         try {
+            // 🐛 FIX: billing_cycle and is_active were missing from SELECT.
+            // The frontend filters on both (`p.is_active`, `p.billing_cycle`
+            // for sorting/cycle selection) — without them every row came
+            // back as is_active: undefined, so the "&& p.is_active" check
+            // in PublishPayment.jsx always failed and no plan ever matched,
+            // regardless of plan_key.
             const result = await pool.query(
-                'SELECT plan_key, display_name, base_amount, tax_percentage, validity_days FROM pricing_plans WHERE is_active = true'
+                'SELECT plan_key, display_name, billing_cycle, base_amount, tax_percentage, validity_days, is_active FROM pricing_plans WHERE is_active = true'
             );
             res.json({ success: true, data: result.rows });
         } catch (error) {

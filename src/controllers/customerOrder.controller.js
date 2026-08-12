@@ -12,7 +12,7 @@ const CustomerOrderController = {
         try {
             const { storeId } = req.params;
             const { customerId, phone } = req.customer;
-            const { items, deliveryAddress, paymentMethod, subtotal, deliveryCharge, taxAmount, totalAmount } = req.body;
+            const { items, deliveryAddress, paymentMethod, customerUpiId, subtotal, deliveryCharge, taxAmount, totalAmount } = req.body;
 
             if (!items || !Array.isArray(items) || items.length === 0) {
                 return res.status(400).json({ success: false, error: 'Order must include at least one item' });
@@ -23,6 +23,12 @@ const CustomerOrderController = {
             if (totalAmount === undefined || totalAmount === null) {
                 return res.status(400).json({ success: false, error: 'Total amount is required' });
             }
+            // ✅ Only meaningful on the COD+UPI tier (no real gateway yet) —
+            // required so an operator has something to actually cross-check
+            // against their own bank/UPI app before confirming the order.
+            if (paymentMethod === 'upi' && !customerUpiId) {
+                return res.status(400).json({ success: false, error: 'Please enter your UPI ID' });
+            }
 
             const customerResult = await pool.query('SELECT name, phone FROM customers WHERE id = $1', [customerId]);
             const customer = customerResult.rows[0] || {};
@@ -32,13 +38,14 @@ const CustomerOrderController = {
             const result = await pool.query(
                 `INSERT INTO orders
                     (order_id, store_id, customer_id, customer_name, customer_phone, items, delivery_address,
-                     subtotal, delivery_charge, tax_amount, total_amount, payment_method, status, payment_status)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', 'pending')
+                     subtotal, delivery_charge, tax_amount, total_amount, payment_method, customer_upi_id, status, payment_status)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', 'pending')
                  RETURNING *`,
                 [
                     orderId, storeId, customerId, customer.name || null, customer.phone || phone,
                     JSON.stringify(items), JSON.stringify(deliveryAddress),
                     subtotal || 0, deliveryCharge || 0, taxAmount || 0, totalAmount, paymentMethod || null,
+                    paymentMethod === 'upi' ? customerUpiId : null,
                 ]
             );
 
