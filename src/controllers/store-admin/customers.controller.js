@@ -7,20 +7,27 @@ class StoreAdminCustomersController {
             const { storeId } = req.params;
             const { search, limit = 50, offset = 0 } = req.query;
 
-            let query = 'SELECT * FROM customers WHERE store_id = $1';
+            let baseQuery = `
+                SELECT c.id, c.customer_id, c.store_id, c.phone, c.name, c.email, c.created_at,
+                    ca.address_line1, ca.address_line2, ca.city, ca.state,
+                    ca.pincode, ca.landmark, ca.recipient_name, ca.recipient_mobile
+                FROM customers c
+                LEFT JOIN customer_addresses ca ON ca.customer_id = c.id AND ca.is_default = true
+                WHERE c.store_id = $1
+            `;
             let params = [storeId];
             let paramIndex = 2;
 
             if (search) {
-                query += ` AND (name ILIKE $${paramIndex} OR email ILIKE $${paramIndex} OR phone ILIKE $${paramIndex})`;
+                baseQuery += ` AND (c.name ILIKE $${paramIndex} OR c.email ILIKE $${paramIndex} OR c.phone ILIKE $${paramIndex})`;
                 params.push(`%${search}%`);
                 paramIndex++;
             }
 
-            query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+            baseQuery += ` ORDER BY c.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
             params.push(limit, offset);
 
-            const result = await pool.query(query, params);
+            const result = await pool.query(baseQuery, params);
 
             const countQuery = 'SELECT COUNT(*) FROM customers WHERE store_id = $1';
             const countResult = await pool.query(countQuery, [storeId]);

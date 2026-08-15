@@ -93,3 +93,9 @@ router.get('/terms-acceptances', authenticateAdmin, async (req, res) => {
 });
 
 module.exports = router;
+// Trial admin routes
+const TrialController = require('../controllers/trial.controller');
+router.post('/stores/:id/trial/enable', TrialController.adminEnableTrial);
+router.get('/trial/extension-requests', TrialController.getExtensionRequests);
+router.post('/trial/extension-requests/:requestId/accept', TrialController.acceptExtension);
+router.post('/trial/extension-requests/:requestId/reject', TrialController.rejectExtension);

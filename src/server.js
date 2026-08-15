@@ -28,6 +28,14 @@ const trackingRoutes = require('./routes/tracking.routes');
 // Import database to ensure connection
 require('./config/database');
 
+// Subscription expiry cron — runs daily at midnight
+const subscriptionExpiryService = require('./services/subscriptionExpiryService');
+const { CronJob } = require('cron');
+new CronJob('0 0 * * *', () => {
+    subscriptionExpiryService.processExpiredSubscriptions();
+}, null, true, 'Asia/Kolkata');
+console.log('⏰ Subscription expiry cron scheduled (daily midnight IST)');
+
 const app = express();
 
 // ✅ Needed for req.ip to reflect the real visitor, not the proxy, once
@@ -40,8 +48,78 @@ const PORT = process.env.PORT || 5002;
 // Middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: { maxAge: 31536000, includeSubDomains: true },
+    contentSecurityPolicy: false,
 }));
-app.use(cors());
+
+const rateLimit = require('express-rate-limit');
+
+// General API rate limit — for all authenticated API calls (JWT protected)
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    message: { success: false, error: 'Too many requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Super admin login — keyed by EMAIL so each admin has their own counter
+const superAdminLoginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 3,
+    message: { success: false, error: 'Too many login attempts, please try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `superadmin:${req.body?.email || req.ip}`,
+});
+
+// Tenant OTP — keyed by PHONE so each tenant has their own counter
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 3,
+    message: { success: false, error: 'Too many login attempts, please try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `auth:${req.body?.phone || req.ip}`,
+});
+
+// Store admin login — keyed by SUBDOMAIN so each store has their own counter
+const storeAdminLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 3,
+    message: { success: false, error: 'Too many login attempts, please try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `storeadmin:${req.body?.subdomain || req.ip}`,
+});
+
+// Customer OTP — keyed by PHONE so each customer has their own counter
+const customerOtpLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 3,
+    message: { success: false, error: 'Too many OTP attempts, please try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `customerotp:${req.body?.phone || req.ip}`,
+});
+
+// Keep superAdminLimiter as alias for backward compat
+const superAdminLimiter = superAdminLoginLimiter;
+
+app.use('/api', generalLimiter);
+app.use(cors({
+    origin: [
+        'https://aapnaestore.com',
+        'https://www.aapnaestore.com',
+        'https://app.aapnaestore.com',
+        'https://admin.aapnaestore.com',
+        'https://store-admin.aapnaestore.com',
+        /^https:\/\/[a-z0-9-]+\.aapnaestore\.com$/,
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(compression());
 // ✅ Also parse text/plain as JSON — specifically for navigator.sendBeacon
 // calls (e.g. Store Admin's logout-on-tab-close), which can't use
@@ -53,7 +131,16 @@ app.use(express.json({ limit: '10mb', type: ['application/json', 'text/plain'] }
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded images
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads/tenants', (req, res, next) => {
+    if (req.path.includes('/returns/')) {
+        const authHeader = req.headers.authorization;
+        const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) {
+            return res.status(401).json({ success: false, error: 'Authentication required' });
+        }
+    }
+    next();
+}, express.static(path.join(__dirname, '../uploads/tenants')));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -82,6 +169,8 @@ app.get('/', (req, res) => {
 });
 
 // API Routes
+app.use('/api/auth/send-otp', authLimiter);
+app.use('/api/auth/verify-otp', authLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
 
@@ -98,14 +187,17 @@ const PaymentGatewayController = require('./controllers/paymentGateway.controlle
 app.post('/api/webhooks/cashfree/kyc-status', PaymentGatewayController.cashfreeKycWebhook);
 
 app.use('/api/products', productRoutes);
+app.use('/api/admin/login', superAdminLoginLimiter);
 app.use('/api/admin', adminRoutes);
 app.use('/api/store/:storeId/admin/orders', storeAdminOrdersRoutes);
 app.use('/api/store/:storeId/admin/couriers', storeAdminCouriersRoutes);
 app.use('/api/store/:storeId/admin/returns', storeAdminReturnsRoutes);
 app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
+app.use('/api/store-admin/login', storeAdminLimiter);
 app.use('/api/store-admin', storeAdminSessionRoutes);
 app.use('/api/pricing-plans', pricingRoutes);
 app.use('/api/terms', termsRoutes);
+app.use('/api/store/:storeId/auth/otp', customerOtpLimiter);
 app.use('/api/store/:storeId/auth', customerRoutes);
 app.use('/api/store/:storeId/orders', customerOrderRoutes);
 app.use('/api/store/:storeId/customers/me', customerProfileRoutes);
@@ -118,6 +210,7 @@ app.use('/api/tracking', trackingRoutes);
 const scheduleCleanupJob = require('./jobs/storeCleanupJob');
 require('./jobs/trackingJob'); // ✅ was never actually required anywhere before — cron.schedule() runs as a side effect of this require
 require('./jobs/subscriptionExpiryJob');
+require('./jobs/trialExpiryJob');
 scheduleCleanupJob();
 
 // 404 handler

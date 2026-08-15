@@ -35,3 +35,24 @@ router.post('/:id/payment-gateway/:gatewayKey', PaymentGatewayController.createO
 router.post('/:id/payment-gateway/default', PaymentGatewayController.setDefaultGateway);
 
 module.exports = router;
+// Unpublish — sets status to inactive, keeps subscription/domain intact
+router.post('/:id/unpublish', PublishFlowController.unpublish);
+
+// Republish — instantly goes live if subscription still valid, else redirects to payment
+router.post('/:id/republish', PublishFlowController.republish);
+
+// Subscription status — days remaining, grace period etc
+const subscriptionExpiryService = require('../services/subscriptionExpiryService');
+router.get('/:id/subscription-status', async (req, res) => {
+    try {
+        const status = await subscriptionExpiryService.getSubscriptionStatus(req.params.id);
+        res.json({ success: true, data: status });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Trial routes
+const TrialController = require('../controllers/trial.controller');
+router.get('/trial/eligibility', authenticate, TrialController.checkEligibility);
+router.post('/:id/trial/activate', authenticate, TrialController.activateTrial);

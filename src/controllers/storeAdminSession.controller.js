@@ -1,3 +1,4 @@
+const { logActivity, checkSuspiciousActivity } = require('../middleware/activityLogger');
 const crypto = require('crypto');
 const pool = require('../config/database');
 const { decrypt } = require('../utils/encryption');
@@ -48,21 +49,15 @@ const StoreAdminSessionController = {
             }
 
             if (password !== actualPassword) {
+                await logActivity('store_admin_login_failed', req, false, subdomain, 'Invalid password');
+                await checkSuspiciousActivity(req);
                 return res.status(401).json({ success: false, error: 'Invalid password' });
             }
 
-            // Single-session enforcement: reject if a session is active AND
-            // hasn't gone idle past the timeout. An idle/expired session is
-            // treated as free and simply gets overwritten below.
-            if (cred.active_session_token && cred.session_last_active) {
-                const idleFor = Date.now() - new Date(cred.session_last_active).getTime();
-                if (idleFor < IDLE_TIMEOUT_MS) {
-                    return res.status(409).json({
-                        success: false,
-                        error: 'Another session is currently active for this store. Please try again later, or ask them to log out.',
-                    });
-                }
-            }
+            // Multiple sessions allowed — each browser tab/device gets
+            // its own session token. The old single-session restriction
+            // was too strict for real-world use where staff may be logged
+            // in from multiple devices simultaneously.
 
             const sessionToken = crypto.randomBytes(32).toString('hex');
             await pool.query(
@@ -70,6 +65,7 @@ const StoreAdminSessionController = {
                 [sessionToken, store.id]
             );
 
+            await logActivity('store_admin_login_success', req, true, subdomain);
             res.json({
                 success: true,
                 data: { token: sessionToken, storeId: store.id, storeName: store.store_name },
