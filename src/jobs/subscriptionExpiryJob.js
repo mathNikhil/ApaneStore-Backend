@@ -9,7 +9,7 @@ const subscriptionExpiryService = require('../services/subscriptionExpiryService
 cron.schedule('0 * * * *', async () => {
     console.log('🔄 Checking for expired store subscriptions...');
     const result = await subscriptionExpiryService.processExpiredSubscriptions();
-    if (result.success && result.processed > 0) {
+    if (result && result.success && result.processed > 0) {
         console.log(`⏳ Subscription expiry check complete: ${result.processed} store(s) reverted to draft`);
     }
 });

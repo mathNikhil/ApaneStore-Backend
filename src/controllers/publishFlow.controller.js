@@ -249,3 +249,75 @@ const PublishFlowController = {
 };
 
 module.exports = PublishFlowController;
+
+// POST /api/stores/:id/unpublish
+PublishFlowController.unpublish = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const tenantId = req.tenantId;
+
+        const storeCheck = await pool.query(
+            'SELECT id, status FROM stores WHERE id = $1 AND tenant_id = $2',
+            [id, tenantId]
+        );
+        if (storeCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Store not found' });
+        }
+        if (storeCheck.rows[0].status !== 'published') {
+            return res.status(400).json({ success: false, error: 'Store is not published' });
+        }
+
+        await pool.query(
+            `UPDATE stores SET status = 'draft', updated_at = NOW() WHERE id = $1`,
+            [id]
+        );
+
+        res.json({ success: true, message: 'Store unpublished successfully' });
+    } catch (error) {
+        console.error('❌ Unpublish error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to unpublish store' });
+    }
+};
+
+// POST /api/stores/:id/republish
+PublishFlowController.republish = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const tenantId = req.tenantId;
+
+        const storeCheck = await pool.query(
+            'SELECT id, status FROM stores WHERE id = $1 AND tenant_id = $2',
+            [id, tenantId]
+        );
+        if (storeCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Store not found' });
+        }
+
+        // Check if subscription is still valid
+        const subResult = await pool.query(
+            `SELECT * FROM store_subscriptions 
+             WHERE store_id = $1 AND payment_status = 'paid' AND valid_until > NOW()`,
+            [id]
+        );
+
+        if (subResult.rows.length === 0) {
+            // Subscription expired — needs payment again
+            return res.status(402).json({
+                success: false,
+                requiresPayment: true,
+                error: 'Subscription expired. Please complete payment to republish.'
+            });
+        }
+
+        // Subscription valid — instantly republish
+        await pool.query(
+            `UPDATE stores SET status = 'published', published_at = NOW(), updated_at = NOW() WHERE id = $1`,
+            [id]
+        );
+
+        res.json({ success: true, message: 'Store republished successfully' });
+    } catch (error) {
+        console.error('❌ Republish error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to republish store' });
+    }
+};

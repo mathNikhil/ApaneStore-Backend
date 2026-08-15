@@ -1,10 +1,11 @@
+const validate = require('../middleware/validate');
 const express = require('express');
 const router = express.Router();
 const StoreAdminSessionController = require('../controllers/storeAdminSession.controller');
 
 // Public — no tenant auth. This is the store-admin-specific login, not the
 // tenant's own OTP login.
-router.post('/login', StoreAdminSessionController.login);
+router.post('/login', validate('storeAdminLogin'), StoreAdminSessionController.login);
 
 // ✅ Logout accepts BOTH application/json (normal fetch-based logout button)
 // AND text/plain (navigator.sendBeacon on tab close). sendBeacon must use a
