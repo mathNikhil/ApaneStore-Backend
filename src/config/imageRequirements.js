@@ -1,176 +1,65 @@
-// Image requirements for Step 1 (Branding) and Step 2 (Products)
-
 const IMAGE_REQUIREMENTS = {
-    // ============ STEP 1: BRANDING ============
     LOGO: {
-        // What we SHOW to users
-        display: {
-            title: 'Store Logo',
-            dimensions: '200 × 200 px',
-            format: 'PNG only',
-            maxSize: '100 KB',
-            aspectRatio: '1:1 (Square)',
-            hint: 'Upload a clear, high-quality PNG logo'
-        },
-        // What we ACCEPT (with tolerance)
+        display: { hint: 'Recommended: 200×200px • Max 2MB • PNG/JPG' },
         validation: {
-            minWidth: 190,
-            maxWidth: 210,
-            minHeight: 190,
-            maxHeight: 210,
-            minSize: 10 * 1024,        // 10KB
-            maxSize: 120 * 1024,       // 120KB (20% tolerance)
-            allowedMimeTypes: ['image/png'],
-            allowTolerance: true,
-        }
+            maxSize: 2 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+        },
+        processing: { width: 200, height: 200, fit: 'cover' }
     },
     HERO: {
-        display: {
-            title: 'Hero Banner',
-            dimensions: '1200 × 375 px',
-            format: 'PNG or JPG',
-            maxSize: '300 KB',
-            aspectRatio: '3.2:1 (Wide)',
-            hint: 'Use an eye-catching image that represents your store'
-        },
+        display: { hint: 'Recommended: 1200×400px • Max 3MB • JPG/PNG' },
         validation: {
-            minWidth: 1180,
-            maxWidth: 1220,
-            minHeight: 365,
-            maxHeight: 385,
-            minSize: 20 * 1024,
-            maxSize: 350 * 1024,
-            allowedMimeTypes: ['image/png', 'image/jpeg'],
-            allowTolerance: true,
-        }
+            maxSize: 3 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+        },
+        processing: { width: 1200, height: 400, fit: 'cover' }
     },
-    // ============ STEP 2: PRODUCTS ============
     PRODUCT_MAIN: {
-        display: {
-            title: 'Product Main Image',
-            dimensions: '400 × 400 px',
-            format: 'JPG or PNG',
-            maxSize: '200 KB',
-            aspectRatio: '1:1 (Square)',
-            hint: 'Main product image that customers will see first'
-        },
+        display: { hint: 'Recommended: 800×800px • Max 2MB • JPG/PNG' },
         validation: {
-            minWidth: 390,
-            maxWidth: 410,
-            minHeight: 390,
-            maxHeight: 410,
-            minSize: 20 * 1024,
-            maxSize: 220 * 1024,
-            allowedMimeTypes: ['image/png', 'image/jpeg'],
-            allowTolerance: true,
-        }
+            maxSize: 2 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+        },
+        processing: { width: 800, height: 800, fit: 'cover' }
     },
     PRODUCT_GALLERY: {
-        display: {
-            title: 'Product Gallery Images',
-            dimensions: '400 × 400 px',
-            format: 'JPG or PNG',
-            maxSize: '160 KB',
-            aspectRatio: '1:1 (Square)',
-            hint: 'Additional product views (up to 20 images total per product, including main)'
-        },
+        display: { hint: 'Recommended: 800×800px • Max 2MB • JPG/PNG' },
         validation: {
-            minWidth: 390,
-            maxWidth: 410,
-            minHeight: 390,
-            maxHeight: 410,
-            minSize: 10 * 1024,
-            maxSize: 180 * 1024,
-            allowedMimeTypes: ['image/png', 'image/jpeg'],
-            allowTolerance: true,
-        }
+            maxSize: 2 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+        },
+        processing: { width: 800, height: 800, fit: 'cover' }
     },
     VARIANT: {
-        display: {
-            title: 'Variant Thumbnail',
-            dimensions: '100 × 100 px',
-            format: 'JPG or PNG',
-            maxSize: '30 KB',
-            aspectRatio: '1:1 (Square)',
-            hint: 'Thumbnail for product variants (size, color, etc.)'
-        },
+        display: { hint: 'Recommended: 400×400px • Max 1MB • JPG/PNG' },
         validation: {
-            minWidth: 95,
-            maxWidth: 105,
-            minHeight: 95,
-            maxHeight: 105,
-            minSize: 3 * 1024,
-            maxSize: 35 * 1024,
-            allowedMimeTypes: ['image/png', 'image/jpeg'],
-            allowTolerance: true,
-        }
+            maxSize: 1 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+        },
+        processing: { width: 400, height: 400, fit: 'cover' }
     },
     CATEGORY: {
-        display: {
-            title: 'Category Image',
-            dimensions: '200 × 200 px',
-            format: 'JPG or PNG',
-            maxSize: '70 KB',
-            aspectRatio: '1:1 (Square)',
-            hint: 'Category thumbnail for store navigation'
-        },
+        display: { hint: 'Recommended: 400×400px • Max 1MB • JPG/PNG' },
         validation: {
-            minWidth: 190,
-            maxWidth: 210,
-            minHeight: 190,
-            maxHeight: 210,
-            minSize: 5 * 1024,
-            maxSize: 85 * 1024,
-            allowedMimeTypes: ['image/png', 'image/jpeg'],
-            allowTolerance: true,
-        }
+            maxSize: 1 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+        },
+        processing: { width: 400, height: 400, fit: 'cover' }
     },
-    // ✅ Return proof photos — a customer's own evidence photo (damaged
-    // item, wrong item, etc.), taken on whatever phone camera they have.
-    // Deliberately looser bounds than a branded thumbnail like CATEGORY —
-    // no fixed aspect ratio, larger size allowed for real detail.
     RETURN: {
-        display: {
-            title: 'Return Photo',
-            dimensions: 'Any size',
-            format: 'JPG, PNG, WEBP, or HEIC',
-            maxSize: '5 MB',
-            aspectRatio: 'Any',
-            hint: 'Photo showing the issue with your order'
-        },
+        display: { hint: 'Max 5MB • JPG/PNG/WebP' },
         validation: {
-            minWidth: 50,
-            maxWidth: 8000,
-            minHeight: 50,
-            maxHeight: 8000,
-            minSize: 1 * 1024,
             maxSize: 5 * 1024 * 1024,
             allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'],
-            allowTolerance: true,
-        }
+        },
+        processing: { width: 1200, height: 1200, fit: 'inside' }
     }
 };
 
-// Helper function to get requirements by type
-function getRequirements(imageType) {
-    return IMAGE_REQUIREMENTS[imageType] || null;
-}
+function getRequirements(imageType) { return IMAGE_REQUIREMENTS[imageType] || null; }
+function getDisplayInfo(imageType) { const r = IMAGE_REQUIREMENTS[imageType]; return r ? r.display : null; }
+function getValidationRules(imageType) { const r = IMAGE_REQUIREMENTS[imageType]; return r ? r.validation : null; }
+function getProcessingRules(imageType) { const r = IMAGE_REQUIREMENTS[imageType]; return r ? r.processing : null; }
 
-// Helper function to get display info
-function getDisplayInfo(imageType) {
-    const req = IMAGE_REQUIREMENTS[imageType];
-    return req ? req.display : null;
-}
-
-// Helper function to get validation rules
-function getValidationRules(imageType) {
-    const req = IMAGE_REQUIREMENTS[imageType];
-    return req ? req.validation : null;
-}
-
-module.exports = {
-    IMAGE_REQUIREMENTS,
-    getRequirements,
-    getDisplayInfo,
-    getValidationRules
-};
+module.exports = { IMAGE_REQUIREMENTS, getRequirements, getDisplayInfo, getValidationRules, getProcessingRules };

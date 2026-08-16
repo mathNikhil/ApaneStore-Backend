@@ -99,3 +99,19 @@ router.post('/stores/:id/trial/enable', TrialController.adminEnableTrial);
 router.get('/trial/extension-requests', TrialController.getExtensionRequests);
 router.post('/trial/extension-requests/:requestId/accept', TrialController.acceptExtension);
 router.post('/trial/extension-requests/:requestId/reject', TrialController.rejectExtension);
+
+// Store storage info
+router.get('/stores/:id/storage', async (req, res) => {
+    const pool = require('../config/database');
+    const { id } = req.params;
+    const LIMIT = 20 * 1024 * 1024; // 20MB
+    const result = await pool.query('SELECT storage_used_bytes FROM stores WHERE id = $1', [id]);
+    const used = parseInt(result.rows[0]?.storage_used_bytes || 0);
+    const pct = Math.round((used / LIMIT) * 100);
+    res.json({ success: true, data: { used, limit: LIMIT, percentage: pct,
+        usedMB: (used / 1024 / 1024).toFixed(2),
+        limitMB: '20',
+        warning: pct >= 80,
+        full: pct >= 100
+    }});
+});
