@@ -67,54 +67,24 @@ class ImageService {
         // Get image metadata
         const metadata = await sharp(file.buffer).metadata();
 
-        // Process and save image
-        let processedBuffer;
-        let finalMimeType = file.mimetype;
-
-        // For logos (PNG) - keep as PNG with compression
-        if (imageType === 'LOGO') {
-            processedBuffer = await sharp(file.buffer)
-                .png({ quality: 85, compressionLevel: 9 })
-                .toBuffer();
-            finalMimeType = 'image/png';
-        } 
-        // For hero banners - optimize for web
-        else if (imageType === 'HERO') {
-            // If JPEG, compress; if PNG, convert to JPEG
-            if (file.mimetype === 'image/png') {
-                processedBuffer = await sharp(file.buffer)
-                    .jpeg({ quality: 85, progressive: true })
-                    .toBuffer();
-                finalMimeType = 'image/jpeg';
-            } else {
-                processedBuffer = await sharp(file.buffer)
-                    .jpeg({ quality: 85, progressive: true })
-                    .toBuffer();
-                finalMimeType = 'image/jpeg';
-            }
-        }
-        // For product images - use JPEG with good quality
-        else if (['PRODUCT_MAIN', 'PRODUCT_GALLERY', 'VARIANT', 'CATEGORY', 'RETURN'].includes(imageType)) {
-            if (file.mimetype === 'image/png') {
-                processedBuffer = await sharp(file.buffer)
-                    .jpeg({ quality: 80, progressive: true })
-                    .toBuffer();
-                finalMimeType = 'image/jpeg';
-            } else {
-                processedBuffer = await sharp(file.buffer)
-                    .jpeg({ quality: 80, progressive: true })
-                    .toBuffer();
-                finalMimeType = 'image/jpeg';
-            }
-        } else {
-            processedBuffer = file.buffer;
-        }
+        // ✅ Image is already processed to WebP by imageValidation middleware
+        // (resized to target dimensions, EXIF stripped, compressed at 82% quality)
+        // Just use the buffer as-is — no double processing
+        const processedBuffer = file.buffer;
+        const finalMimeType = file.mimetype === 'image/webp' ? 'image/webp' : file.mimetype;
 
         // Save file
         await fs.promises.writeFile(filePath, processedBuffer);
 
         // Get final file size
         const stats = await fs.promises.stat(filePath);
+
+        // Update store storage usage
+        const pool = require('../config/database');
+        await pool.query(
+            'UPDATE stores SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE store_id = $2',
+            [stats.size, storeId]
+        ).catch(e => console.warn('Storage tracking update failed:', e.message));
 
         // Save to database
         const imageData = {
