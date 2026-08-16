@@ -178,6 +178,7 @@ app.use('/api/tenants', tenantRoutes);
 // Because imageRoutes starts with /stores, Express must check it FIRST.
 app.use('/api/stores', imageRoutes); 
 app.use('/api/stores', storeRoutes);
+app.post('/api/store/:storeId/cashfree/create-order', PaymentGatewayController.createCashfreeOrder);
 
 // Public webhook — Cashfree calls this directly with its own signature,
 // never a tenant JWT, so it must NOT sit behind authenticate middleware.
@@ -185,6 +186,7 @@ app.use('/api/stores', storeRoutes);
 // are wired — see PaymentGatewayController.cashfreeKycWebhook.
 const PaymentGatewayController = require('./controllers/paymentGateway.controller');
 app.post('/api/webhooks/cashfree/kyc-status', PaymentGatewayController.cashfreeKycWebhook);
+app.post('/api/webhooks/cashfree/payment/:storeId', PaymentGatewayController.cashfreePaymentWebhook);
 
 app.use('/api/products', productRoutes);
 app.use('/api/admin/login', superAdminLoginLimiter);
