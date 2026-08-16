@@ -29,10 +29,7 @@ router.post('/:id/payment', PublishFlowController.completePayment);
 // gateway account for collecting from THEIR customers, separate from the
 // platform payment above. ApnaEstore never touches this money — see the
 // payment gateway integration reference doc.
-router.get('/:id/payment-gateways', PaymentGatewayController.listStoreGateways);
-router.get('/:id/payment-gateway/:gatewayKey', PaymentGatewayController.getGatewayStatus);
-router.post('/:id/payment-gateway/:gatewayKey', PaymentGatewayController.createOrUpdateGatewayAccount);
-router.post('/:id/payment-gateway/default', PaymentGatewayController.setDefaultGateway);
+router.get('/:id/payment-gateways', authenticate, PaymentGatewayController.listStoreGateways);
 
 module.exports = router;
 // Unpublish — sets status to inactive, keeps subscription/domain intact
@@ -51,6 +48,9 @@ router.get('/:id/subscription-status', async (req, res) => {
         res.status(500).json({ success: false, error: e.message });
     }
 });
+
+// Cashfree payment gateway keys
+router.post('/:id/payment-gateway/cashfree/keys', authenticate, PaymentGatewayController.saveCashfreeKeys);
 
 // Trial routes
 const TrialController = require('../controllers/trial.controller');
