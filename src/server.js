@@ -185,8 +185,10 @@ app.use('/api/stores', storeRoutes);
 // 🔧 TODO: add signature verification here once real Cashfree credentials
 // are wired — see PaymentGatewayController.cashfreeKycWebhook.
 const PaymentGatewayController = require('./controllers/paymentGateway.controller');
+const webhookRoutes = require('./routes/webhook.routes');
 app.post('/api/store/:storeId/cashfree/create-order', PaymentGatewayController.createCashfreeOrder);
 app.post('/api/webhooks/cashfree/kyc-status', PaymentGatewayController.cashfreeKycWebhook);
+app.use('/api/webhooks', webhookRoutes);
 app.post('/api/webhooks/cashfree/payment/:storeId', PaymentGatewayController.cashfreePaymentWebhook);
 
 app.use('/api/products', productRoutes);
