@@ -130,6 +130,28 @@ class AdminStoreController {
             });
         }
     }
+
+    static async changeStoreStatus(req, res) {
+        try {
+            const { id } = req.params;
+            const { status, reason } = req.body;
+            const validStatuses = ['published', 'draft', 'suspended', 'inactive'];
+            if (!validStatuses.includes(status)) {
+                return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+            }
+            const pool = require('../../config/database');
+            const storeCheck = await pool.query('SELECT id, status, store_name FROM stores WHERE id = $1', [id]);
+            if (storeCheck.rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+            const oldStatus = storeCheck.rows[0].status;
+            await pool.query('UPDATE stores SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
+            console.log(`[ADMIN] Store ${id} status changed: ${oldStatus} → ${status}. Reason: ${reason || 'No reason'}`);
+            res.json({ success: true, message: `Store status changed to ${status}`, data: { id, oldStatus, newStatus: status, reason } });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    }
 }
 
 module.exports = AdminStoreController;
