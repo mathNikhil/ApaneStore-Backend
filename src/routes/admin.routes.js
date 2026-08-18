@@ -35,6 +35,7 @@ router.delete('/tenants/:id', authenticateAdmin, AdminTenantController.delete);
 router.get('/stores', authenticateAdmin, AdminStoreController.getAll);
 router.get('/stores/:id', authenticateAdmin, AdminStoreController.getById);
 router.delete('/stores/:id', authenticateAdmin, AdminStoreController.delete);
+router.patch('/stores/:id/status', authenticateAdmin, AdminStoreController.changeStoreStatus);
 
 // ============================================================
 // ✅ PLATFORM SETTINGS (Added)
