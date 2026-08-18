@@ -8,6 +8,7 @@ const AdminTenantController = require('../controllers/Admin/tenant.controller');
 const AdminStoreController = require('../controllers/Admin/store.controller');
 const AdminPanelController = require('../controllers/Admin/panel.controller');
 const AdminPricingController = require('../controllers/Admin/pricing.controller');
+const PlatformSettingsController = require('../controllers/platformSettings.controller');
 
 // ✅ Import the admin controller for settings and cleanup
 const adminController = require('../controllers/admin.controller');
@@ -91,6 +92,10 @@ router.get('/terms-acceptances', authenticateAdmin, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// Payment gateway configuration
+router.get('/payment-gateway', authenticateAdmin, PlatformSettingsController.getPaymentGatewayConfig);
+router.post('/payment-gateway', authenticateAdmin, PlatformSettingsController.savePaymentGatewayConfig);
 
 module.exports = router;
 // Trial admin routes

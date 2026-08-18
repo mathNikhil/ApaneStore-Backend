@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const cashfreeService = require('../services/paymentGateway.service');
 
 // ✅ Publish flow: domain + hosting + payment.
 //
@@ -10,6 +11,38 @@ const pool = require('../config/database');
 // field — see getState().
 const PublishFlowController = {
     // Maps a domain+hosting combination to its pricing_plans row and
+    _publishStoreDirectly: async (id, tenantId, billingCycle, paymentMethod, termsAccepted, req, res) => {
+        const domainConfigResult = await pool.query('SELECT * FROM store_domain_config WHERE store_id = $1', [id]);
+        const domainConfig = domainConfigResult.rows[0];
+        const resolvedKey = PublishFlowController._resolvePlanKey(domainConfig.domain_type, domainConfig.hosting_type);
+        const cycle = billingCycle || 'annual';
+        const planResult = await pool.query(
+            'SELECT * FROM pricing_plans WHERE plan_key = $1 AND billing_cycle = $2 AND is_active = true',
+            [resolvedKey, cycle]
+        );
+        const plan = planResult.rows.length > 0 ? planResult.rows[0] : { plan_key: resolvedKey, display_name: 'Test Plan', billing_cycle: cycle, base_amount: 0, tax_percentage: 0, validity_days: 365 };
+        const baseAmount = parseFloat(plan.base_amount || 0);
+        const taxAmount = baseAmount * (parseFloat(plan.tax_percentage || 0) / 100);
+        const totalAmount = baseAmount + taxAmount;
+        const subscriptionResult = await pool.query(
+            `INSERT INTO store_subscriptions (store_id, plan_key, plan_name, billing_cycle, base_amount, tax_amount, total_amount, payment_status, payment_method, paid_at, valid_until, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'paid', $8, NOW(), NOW() + ($9 || ' days')::interval, NOW())
+             ON CONFLICT (store_id) DO UPDATE SET plan_key=$2, plan_name=$3, billing_cycle=$4, base_amount=$5, tax_amount=$6, total_amount=$7,
+             payment_status='paid', payment_method=$8, paid_at=NOW(), valid_until=NOW() + ($9 || ' days')::interval, updated_at=NOW() RETURNING *`,
+            [id, plan.plan_key, plan.display_name, plan.billing_cycle, baseAmount, taxAmount, totalAmount, paymentMethod || 'test', plan.validity_days]
+        );
+        const storeUpdateResult = await pool.query(
+            `UPDATE stores SET status='published', published_at=NOW(), updated_at=NOW() WHERE id=$1 RETURNING id, store_id, store_name, subdomain, status, published_at`,
+            [id]
+        );
+        const { TERMS_VERSION } = require('../config/terms');
+        await pool.query(
+            `INSERT INTO terms_acceptances (tenant_id, store_id, terms_version, ip_address) VALUES ($1, $2, $3, $4)`,
+            [tenantId, id, TERMS_VERSION, req.ip || req.headers['x-forwarded-for'] || null]
+        );
+        return res.json({ success: true, data: { subscription: subscriptionResult.rows[0], store: storeUpdateResult.rows[0] } });
+    },
+
     // decides what DNS status it should start at. This is the single
     // source of truth for "which of the 3 valid combinations is this."
     _resolvePlanKey(domainType, hostingType) {
@@ -171,6 +204,14 @@ const PublishFlowController = {
             );
             if (storeCheck.rows.length === 0) {
                 return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+
+            // Check if test tenant — bypass payment
+            const tenantResult = await pool.query('SELECT mobile FROM tenants WHERE id = $1', [tenantId]);
+            const tenantMobile = tenantResult.rows[0]?.mobile;
+            if (cashfreeService.isTestTenant(tenantMobile)) {
+                console.log(`✅ Test tenant ${tenantMobile} — bypassing payment`);
+                return await PublishFlowController._publishStoreDirectly(id, tenantId, billingCycle, paymentMethod, termsAccepted, req, res);
             }
 
             const domainConfigResult = await pool.query(

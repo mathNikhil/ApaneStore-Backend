@@ -43,13 +43,14 @@ class TenantController {
     static async update(req, res) {
         try {
             // ✅ Use snake_case to match frontend and database
-            const { company_name, email, phone, business_type } = req.body;
+            const { company_name, business_name, email, phone, business_type } = req.body;
+            const effectiveName = business_name || company_name;
 
             // ✅ Check if there's anything to update
-            if (!company_name && !email && !phone && !business_type) {
+            if (!company_name && !business_name && !email && !phone && !business_type) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Nothing to update — provide company_name, email, business_type, and/or phone'
+                    error: 'Nothing to update — provide business_name, email, business_type, and/or phone'
                 });
             }
 
@@ -59,9 +60,11 @@ class TenantController {
             let paramIndex = 1;
 
             // ✅ Use snake_case to match database column names
-            if (company_name !== undefined && company_name !== '') {
+            if (effectiveName !== undefined && effectiveName !== '') {
                 updates.push(`company_name = $${paramIndex++}`);
-                values.push(company_name);
+                updates.push(`business_name = $${paramIndex++}`);
+                values.push(effectiveName);
+                values.push(effectiveName);
             }
             if (email !== undefined && email !== '') {
                 updates.push(`email = $${paramIndex++}`);
