@@ -5,14 +5,15 @@ const StoreAdminPasswordController = require('../controllers/storeAdminPassword.
 const PublishFlowController = require('../controllers/publishFlow.controller');
 const PaymentGatewayController = require('../controllers/paymentGateway.controller');
 const { authenticate } = require('../middleware/auth');
+const contentFilter = require('../middleware/contentFilter');
 
 // All store routes require authentication
 router.use(authenticate);
 
 router.get('/', StoreController.getAll);
 router.get('/:id', StoreController.getById);
-router.post('/', StoreController.create);
-router.put('/:id', StoreController.update);
+router.post('/', contentFilter, StoreController.create);
+router.put('/:id', contentFilter, StoreController.update);
 router.delete('/:id', StoreController.delete);
 
 // Store Admin password management (view/regenerate) — tenant must own the store
@@ -51,6 +52,12 @@ router.get('/:id/subscription-status', async (req, res) => {
 
 // Cashfree payment gateway keys
 router.post('/:id/payment-gateway/cashfree/keys', authenticate, PaymentGatewayController.saveCashfreeKeys);
+
+// Razorpay payment gateway keys
+router.post('/:id/payment-gateway/razorpay/keys', authenticate, PaymentGatewayController.saveRazorpayKeys);
+
+// Stripe payment gateway keys
+router.post('/:id/payment-gateway/stripe/keys', authenticate, PaymentGatewayController.saveStripeKeys);
 
 // Trial routes
 const TrialController = require('../controllers/trial.controller');

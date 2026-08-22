@@ -217,6 +217,111 @@ const PaymentGatewayController = {
             res.status(500).json({ success: false });
         }
     },
-};
 
+    // POST /api/stores/:id/payment-gateway/razorpay/keys
+    saveRazorpayKeys: async (req, res) => {
+        try {
+            const { id: storeId } = req.params;
+            const tenantId = req.tenantId;
+            const { keyId, keySecret, mode } = req.body;
+
+            if (!keyId || !keySecret) {
+                return res.status(400).json({ success: false, error: 'Key ID and Key Secret are required' });
+            }
+
+            const storeCheck = await pool.query(
+                'SELECT id FROM stores WHERE id = $1 AND tenant_id = $2',
+                [storeId, tenantId]
+            );
+            if (storeCheck.rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+
+            const gatewayResult = await pool.query(
+                "SELECT id FROM payment_gateways WHERE gateway_key = 'razorpay'"
+            );
+            if (gatewayResult.rows.length === 0) {
+                return res.status(400).json({ success: false, error: 'Razorpay gateway not found' });
+            }
+            const gatewayId = gatewayResult.rows[0].id;
+
+            const encryptedApiKey = encrypt(keyId);
+            const encryptedSecretKey = encrypt(keySecret);
+            const gatewayMode = mode || 'sandbox';
+
+            await pool.query(
+                `INSERT INTO store_payment_gateway_accounts
+                    (store_id, gateway_id, account_identifier, encrypted_api_key, encrypted_secret_key,
+                     gateway_mode, kyc_status, is_enabled, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'approved', true, NOW())
+                 ON CONFLICT (store_id, gateway_id) DO UPDATE
+                 SET encrypted_api_key = $4, encrypted_secret_key = $5,
+                     account_identifier = $3, gateway_mode = $6,
+                     is_enabled = true, updated_at = NOW()`,
+                [storeId, gatewayId, keyId, encryptedApiKey, encryptedSecretKey, gatewayMode]
+            );
+
+            logger.info('Razorpay keys saved for store ' + storeId);
+            res.json({ success: true, message: 'Razorpay configured successfully' });
+        } catch (error) {
+            logger.error('Save Razorpay keys error:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // POST /api/stores/:id/payment-gateway/stripe/keys
+    saveStripeKeys: async (req, res) => {
+        try {
+            const { id: storeId } = req.params;
+            const tenantId = req.tenantId;
+            const { publishableKey, secretKey, webhookSecret, mode } = req.body;
+
+            if (!publishableKey || !secretKey) {
+                return res.status(400).json({ success: false, error: 'Publishable Key and Secret Key are required' });
+            }
+
+            const storeCheck = await pool.query(
+                'SELECT id FROM stores WHERE id = $1 AND tenant_id = $2',
+                [storeId, tenantId]
+            );
+            if (storeCheck.rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+
+            const gatewayResult = await pool.query(
+                "SELECT id FROM payment_gateways WHERE gateway_key = 'stripe'"
+            );
+            if (gatewayResult.rows.length === 0) {
+                return res.status(400).json({ success: false, error: 'Stripe gateway not found' });
+            }
+            const gatewayId = gatewayResult.rows[0].id;
+
+            const encryptedApiKey = encrypt(publishableKey);
+            const encryptedSecretKey = encrypt(secretKey);
+            const gatewayDetails = webhookSecret
+                ? { webhook_secret: encrypt(webhookSecret) }
+                : {};
+            const gatewayMode = mode || 'sandbox';
+
+            await pool.query(
+                `INSERT INTO store_payment_gateway_accounts
+                    (store_id, gateway_id, account_identifier, encrypted_api_key, encrypted_secret_key,
+                     gateway_details, gateway_mode, kyc_status, is_enabled, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'approved', true, NOW())
+                 ON CONFLICT (store_id, gateway_id) DO UPDATE
+                 SET encrypted_api_key = $4, encrypted_secret_key = $5,
+                     gateway_details = $6, account_identifier = $3,
+                     gateway_mode = $7, is_enabled = true, updated_at = NOW()`,
+                [storeId, gatewayId, publishableKey, encryptedApiKey, encryptedSecretKey,
+                 JSON.stringify(gatewayDetails), gatewayMode]
+            );
+
+            logger.info('Stripe keys saved for store ' + storeId);
+            res.json({ success: true, message: 'Stripe configured successfully' });
+        } catch (error) {
+            logger.error('Save Stripe keys error:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+};
 module.exports = PaymentGatewayController;
