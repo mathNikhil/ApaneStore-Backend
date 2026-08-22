@@ -218,7 +218,7 @@ const AuthController = {
                     `INSERT INTO tenants (tenant_id, company_name, email, phone, password_hash, is_verified, created_at)
                      VALUES ($1, $2, $3, $4, $5, true, NOW())
                      RETURNING id, tenant_id, company_name, email, phone`,
-                    [`TENANT_${Date.now()}`, `User ${phone}`, `${phone}@temp.com`, phone, 'temp_password']
+                    [`TENANT_${Date.now()}`, null, null, phone, 'temp_password']
                 );
                 tenant = insertResult.rows[0];
             } else {

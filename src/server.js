@@ -201,6 +201,20 @@ app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
 app.use('/api/store-admin/login', storeAdminLimiter);
 app.use('/api/store-admin', storeAdminSessionRoutes);
 app.use('/api/pricing-plans', pricingRoutes);
+// Public pricing — no auth, needed for legal/marketing pages
+app.get('/api/public/pricing-plans', async (req, res) => {
+    try {
+        const _pool = require('./config/database');
+        const result = await _pool.query(
+            'SELECT plan_key, display_name, billing_cycle, base_amount, tax_percentage, validity_days FROM pricing_plans WHERE is_active = true ORDER BY plan_key, billing_cycle'
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+
 app.use('/api/terms', termsRoutes);
 app.use('/api/store/:storeId/auth/otp', customerOtpLimiter);
 app.use('/api/store/:storeId/auth', customerRoutes);

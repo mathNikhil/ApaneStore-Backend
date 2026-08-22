@@ -514,6 +514,7 @@ const runColumnMigrations = async () => {
 };
 
 // Run migration on startup
-runMigration().then(() => runColumnMigrations());
+// runMigration() disabled — schema.sql conflicts with live integer IDs
+runColumnMigrations();
 
 module.exports = pool;

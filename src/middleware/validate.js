@@ -14,7 +14,7 @@ const schemas = {
 
     // Store admin login
     storeAdminLogin: Joi.object({
-        subdomain: Joi.string().alphanum().min(2).max(50).required(),
+        subdomain: Joi.string().pattern(/^[a-zA-Z0-9-]+$/).min(2).max(50).required(),
         password: Joi.string().min(4).max(100).required(),
     }),
 
