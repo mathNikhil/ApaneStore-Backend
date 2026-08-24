@@ -73,9 +73,32 @@ class StoreAdminOrdersController {
                 });
             }
 
+            const order = result.rows[0];
+
+            // Enrich items with product images from products table
+            if (order.items && Array.isArray(order.items)) {
+                const enrichedItems = await Promise.all(order.items.map(async (item) => {
+                    if (item.productId) {
+                        try {
+                            const prodResult = await pool.query(
+                                'SELECT images FROM products WHERE id = $1',
+                                [item.productId]
+                            );
+                            if (prodResult.rows.length > 0) {
+                                const images = prodResult.rows[0].images;
+                                const imageUrl = Array.isArray(images) && images.length > 0 ? images[0] : null;
+                                return { ...item, image: imageUrl };
+                            }
+                        } catch (e) {}
+                    }
+                    return item;
+                }));
+                order.items = enrichedItems;
+            }
+
             res.status(200).json({
                 success: true,
-                data: result.rows[0]
+                data: order
             });
         } catch (error) {
             logger.error('❌ Get order error:', error);
