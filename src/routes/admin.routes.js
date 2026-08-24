@@ -8,6 +8,7 @@ const AdminTenantController = require('../controllers/Admin/tenant.controller');
 const AdminStoreController = require('../controllers/Admin/store.controller');
 const AdminPanelController = require('../controllers/Admin/panel.controller');
 const AdminPricingController = require('../controllers/Admin/pricing.controller');
+const InvoiceController = require('../controllers/invoice.controller');
 const PlatformSettingsController = require('../controllers/platformSettings.controller');
 
 // ✅ Import the admin controller for settings and cleanup
@@ -97,6 +98,51 @@ router.get('/terms-acceptances', authenticateAdmin, async (req, res) => {
 // Payment gateway configuration
 router.get('/payment-gateway', authenticateAdmin, PlatformSettingsController.getPaymentGatewayConfig);
 router.post('/payment-gateway', authenticateAdmin, PlatformSettingsController.savePaymentGatewayConfig);
+
+// Revenue overview
+router.get('/revenue', authenticateAdmin, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const result = await pool.query(`
+            SELECT 
+                ss.id, ss.store_id, ss.plan_key, ss.plan_name, ss.billing_cycle,
+                ss.base_amount, ss.tax_amount, ss.total_amount,
+                ss.payment_method, ss.paid_at, ss.valid_until,
+                ss.invoice_number,
+                s.store_name, s.subdomain, s.custom_domain, s.status as store_status,
+                t.company_name as tenant_name, t.phone as tenant_phone, t.email as tenant_email
+            FROM store_subscriptions ss
+            JOIN stores s ON s.id = ss.store_id
+            JOIN tenants t ON t.id = s.tenant_id
+            WHERE ss.payment_status = 'paid'
+            ORDER BY ss.paid_at DESC
+        `);
+
+        const rows = result.rows;
+        const totalBase = rows.reduce((sum, r) => sum + parseFloat(r.base_amount || 0), 0);
+        const totalGst = rows.reduce((sum, r) => sum + parseFloat(r.tax_amount || 0), 0);
+        const totalRevenue = rows.reduce((sum, r) => sum + parseFloat(r.total_amount || 0), 0);
+
+        res.json({
+            success: true,
+            data: {
+                subscriptions: rows,
+                summary: {
+                    totalBase: totalBase.toFixed(2),
+                    totalGst: totalGst.toFixed(2),
+                    totalRevenue: totalRevenue.toFixed(2),
+                    count: rows.length,
+                }
+            }
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Invoice routes for super admin
+router.get('/tenants/:tenantId/invoices', authenticateAdmin, InvoiceController.adminListInvoices);
+router.get('/invoices/:subscriptionId/download', authenticateAdmin, InvoiceController.downloadInvoice);
 
 module.exports = router;
 // Trial admin routes

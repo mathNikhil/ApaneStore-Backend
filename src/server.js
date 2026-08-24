@@ -17,6 +17,7 @@ const storeAdminReturnsRoutes = require('./routes/store-admin/returns.routes');
 const storeAdminCustomersRoutes = require('./routes/store-admin/customers.routes');
 const storeAdminSessionRoutes = require('./routes/storeAdminSession.routes');
 const pricingRoutes = require('./routes/pricing.routes');
+const invoiceRoutes = require('./routes/invoice.routes');
 const termsRoutes = require('./routes/terms.routes');
 const customerRoutes = require('./routes/customer.routes');
 const customerOrderRoutes = require('./routes/customerOrder.routes');
@@ -201,6 +202,7 @@ app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
 app.use('/api/store-admin/login', storeAdminLimiter);
 app.use('/api/store-admin', storeAdminSessionRoutes);
 app.use('/api/pricing-plans', pricingRoutes);
+app.use('/api/invoices', invoiceRoutes);
 // Public pricing — no auth, needed for legal/marketing pages
 app.get('/api/public/pricing-plans', async (req, res) => {
     try {
