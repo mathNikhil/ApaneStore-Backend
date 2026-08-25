@@ -203,6 +203,40 @@ app.use('/api/store-admin/login', storeAdminLimiter);
 app.use('/api/store-admin', storeAdminSessionRoutes);
 app.use('/api/pricing-plans', pricingRoutes);
 app.use('/api/invoices', invoiceRoutes);
+
+// Public endpoint — check if platform payment gateway is enabled
+app.get('/api/public/payment-gateway-status', async (req, res) => {
+    try {
+        const _pool = require('./config/database');
+        const result = await _pool.query(
+            "SELECT key, value FROM platform_settings WHERE key IN ('pg_enabled', 'pg_provider', 'pg_environment')"
+        );
+        const settings = {};
+        result.rows.forEach(r => { settings[r.key] = r.value; });
+        res.json({
+            success: true,
+            data: {
+                enabled: settings.pg_enabled === 'true',
+                provider: settings.pg_provider || 'cashfree',
+                environment: settings.pg_environment || 'sandbox',
+            }
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Check if tenant is test tenant — affects payment method shown
+app.get('/api/public/is-test-tenant', async (req, res) => {
+    try {
+        const { phone } = req.query;
+        const cashfreeService = require('./services/paymentGateway.service');
+        res.json({ success: true, isTestTenant: cashfreeService.isTestTenant(phone) });
+    } catch (e) {
+        res.json({ success: true, isTestTenant: false });
+    }
+});
+
 // Public pricing — no auth, needed for legal/marketing pages
 app.get('/api/public/pricing-plans', async (req, res) => {
     try {

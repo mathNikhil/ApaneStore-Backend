@@ -19,6 +19,35 @@ const StoreAdminSessionController = {
                 return res.status(400).json({ success: false, error: 'Subdomain and password are required' });
             }
 
+            const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+            const lockKey = `${ip}::${subdomain}`;
+
+            // ── Lockout check — IP + subdomain combination ──────────
+            const lockResult = await pool.query(
+                `SELECT COUNT(*) as attempts,
+                        MAX(created_at) as last_attempt
+                 FROM activity_logs
+                 WHERE event_type = 'store_admin_login_failed'
+                 AND details LIKE $1
+                 AND created_at > NOW() - INTERVAL '15 minutes'`,
+                [`%${lockKey}%`]
+            );
+            const attempts = parseInt(lockResult.rows[0].attempts || 0);
+            if (attempts >= 3) {
+                const lastAttempt = new Date(lockResult.rows[0].last_attempt);
+                const cooldownEnds = new Date(lastAttempt.getTime() + 15 * 60 * 1000);
+                const remainingMs = cooldownEnds - Date.now();
+                const remainingMins = Math.ceil(remainingMs / 60000);
+                return res.status(429).json({
+                    success: false,
+                    error: `Too many failed attempts. Please try again in ${remainingMins} minute${remainingMins !== 1 ? 's' : ''}.`,
+                    lockedOut: true,
+                    cooldownEnds: cooldownEnds.toISOString(),
+                    remainingMs: Math.max(0, remainingMs),
+                });
+            }
+            // ────────────────────────────────────────────────────────
+
             const storeResult = await pool.query(
                 'SELECT id, store_name FROM stores WHERE subdomain = $1',
                 [subdomain]
@@ -49,7 +78,7 @@ const StoreAdminSessionController = {
             }
 
             if (password !== actualPassword) {
-                await logActivity('store_admin_login_failed', req, false, subdomain, 'Invalid password');
+                await logActivity('store_admin_login_failed', req, false, subdomain, `Invalid password | lockKey: ${lockKey}`);
                 await checkSuspiciousActivity(req);
                 return res.status(401).json({ success: false, error: 'Invalid password' });
             }

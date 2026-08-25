@@ -50,6 +50,70 @@ router.get('/:id/subscription-status', async (req, res) => {
     }
 });
 
+// Initiate Cashfree subscription payment
+router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const cashfreeService = require('../services/paymentGateway.service');
+        const { billingCycle, termsAccepted } = req.body;
+        const { id: storeId } = req.params;
+        const tenantId = req.tenantId;
+
+        if (!termsAccepted) return res.status(400).json({ success: false, error: 'Terms must be accepted' });
+
+        // Get tenant details
+        const tenantResult = await pool.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
+        if (!tenantResult.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+        const tenant = tenantResult.rows[0];
+
+        // Get store publish flow state
+        const flowResult = await pool.query('SELECT * FROM stores WHERE id = $1 AND tenant_id = $2', [storeId, tenantId]);
+        if (!flowResult.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+
+        // Get store domain config to determine plan key
+        const store = flowResult.rows[0];
+        let planKey = 'subdomain_apnaestore';
+        if (store.domain_type === 'custom' && store.hosting_type === 'apnaestore') planKey = 'custom_domain_apnaestore';
+        else if (store.domain_type === 'custom' && store.hosting_type === 'own') planKey = 'custom_domain_own_hosting';
+
+        // Get pricing plan
+        const planResult = await pool.query(
+            "SELECT * FROM pricing_plans WHERE billing_cycle = $1 AND plan_key = $2 AND is_active = true LIMIT 1",
+            [billingCycle, planKey]
+        );
+        if (!planResult.rows.length) return res.status(404).json({ success: false, error: 'Plan not found' });
+        const plan = planResult.rows[0];
+
+        const totalAmount = parseFloat(plan.base_amount) * (1 + parseFloat(plan.tax_percentage) / 100);
+        const orderId = `store_${storeId}_${Date.now()}`;
+
+        // Save to pending_payments
+        await pool.query(
+            `INSERT INTO pending_payments (order_id, store_id, tenant_id, plan_key, plan_name, billing_cycle, base_amount, tax_amount, total_amount, validity_days, status, terms_accepted)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11)
+             ON CONFLICT (order_id) DO NOTHING`,
+            [orderId, storeId, tenantId, plan.plan_key, plan.display_name, plan.billing_cycle,
+             plan.base_amount, (totalAmount - parseFloat(plan.base_amount)).toFixed(2),
+             totalAmount.toFixed(2), plan.validity_days, termsAccepted]
+        );
+
+        const API_URL = process.env.FRONTEND_URL || 'https://aapnaestore.com';
+        const order = await cashfreeService.createOrder({
+            orderId,
+            amount: totalAmount.toFixed(2),
+            customerName: tenant.company_name || 'Tenant',
+            customerEmail: tenant.email || `${tenant.phone}@temp.com`,
+            customerPhone: tenant.phone,
+            returnUrl: `${API_URL}/store-builder/publish/success?storeId=${storeId}&orderId=${orderId}`,
+        });
+
+        res.json({ success: true, data: { orderId, paymentSessionId: order.paymentSessionId, amount: totalAmount.toFixed(2) } });
+    } catch (e) {
+        console.error('Initiate Cashfree error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Cashfree payment gateway keys
 router.post('/:id/payment-gateway/cashfree/keys', authenticate, PaymentGatewayController.saveCashfreeKeys);
 
