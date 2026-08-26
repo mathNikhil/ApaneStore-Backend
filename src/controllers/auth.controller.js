@@ -81,6 +81,7 @@ const AuthController = {
             }
 
             const JWT_SECRET = process.env.JWT_SECRET;
+const discountService = require('../services/discount.service');
             const token = jwt.sign(
                 { 
                     userId: user.id,
@@ -197,6 +198,7 @@ const AuthController = {
             }
 
             const JWT_SECRET = process.env.JWT_SECRET;
+const discountService = require('../services/discount.service');
             if (!JWT_SECRET) {
                 console.error('❌ JWT_SECRET is not defined in .env');
                 return res.status(500).json({
@@ -221,6 +223,11 @@ const AuthController = {
                     [`TENANT_${Date.now()}`, null, null, phone, 'temp_password']
                 );
                 tenant = insertResult.rows[0];
+                // Generate referral code for new tenant
+                await discountService.generateReferralCode(tenant.id, null);
+                // Save referral if came via ref link
+                const refCode = req.body.referralCode || req.headers['x-referral-code'];
+                if (refCode) await discountService.saveReferral(tenant.id, refCode);
             } else {
                 tenant = result.rows[0];
 
@@ -275,6 +282,7 @@ const AuthController = {
         try {
             const { token } = req.body;
             const JWT_SECRET = process.env.JWT_SECRET;
+const discountService = require('../services/discount.service');
             
             const decoded = jwt.verify(token, JWT_SECRET);
             

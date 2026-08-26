@@ -5,6 +5,7 @@ const StoreAdminPasswordController = require('../controllers/storeAdminPassword.
 const PublishFlowController = require('../controllers/publishFlow.controller');
 const PaymentGatewayController = require('../controllers/paymentGateway.controller');
 const { authenticate } = require('../middleware/auth');
+const discountService = require('../services/discount.service');
 const contentFilter = require('../middleware/contentFilter');
 
 // All store routes require authentication
@@ -50,6 +51,49 @@ router.get('/:id/subscription-status', async (req, res) => {
     }
 });
 
+// GET /api/stores/:id/publish-discount — calculate discount for tenant
+router.get('/:id/publish-discount', authenticate, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const tenantId = req.tenantId;
+        const { billingCycle } = req.query;
+
+        // Get domain config for plan key
+        const storeResult = await pool.query('SELECT id FROM stores WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
+        if (!storeResult.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+
+        const domainResult = await pool.query('SELECT domain_type, hosting_type FROM store_domain_config WHERE store_id = $1', [req.params.id]);
+        const d = domainResult.rows[0] || { domain_type: 'subdomain', hosting_type: 'apnaestore' };
+        let planKey = 'subdomain_apnaestore';
+        if (d.domain_type === 'custom' && d.hosting_type === 'apnaestore') planKey = 'custom_domain_apnaestore';
+        else if (d.domain_type === 'custom' && d.hosting_type === 'own') planKey = 'custom_domain_own_hosting';
+
+        const planResult = await pool.query(
+            'SELECT * FROM pricing_plans WHERE billing_cycle = $1 AND plan_key = $2 AND is_active = true LIMIT 1',
+            [billingCycle || '365days', planKey]
+        );
+        if (!planResult.rows.length) return res.status(404).json({ success: false, error: 'Plan not found' });
+
+        const plan = planResult.rows[0];
+        const baseAmount = parseFloat(plan.base_amount) * (1 + parseFloat(plan.tax_percentage) / 100);
+        const discount = await discountService.calculateDiscount(tenantId, baseAmount, billingCycle || '365days', parseFloat(plan.tax_percentage));
+
+        res.json({ success: true, data: { ...discount, plan } });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET /api/referral/summary — referral summary for profile page
+router.get('/referral/summary', authenticate, async (req, res) => {
+    try {
+        const summary = await discountService.getReferralSummary(req.tenantId);
+        res.json({ success: true, data: summary });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Initiate Cashfree subscription payment
 router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => {
     try {
@@ -72,9 +116,14 @@ router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => 
 
         // Get store domain config to determine plan key
         const store = flowResult.rows[0];
+        const domainConfigResult = await pool.query(
+            'SELECT domain_type, hosting_type FROM store_domain_config WHERE store_id = $1',
+            [storeId]
+        );
+        const domainConfig = domainConfigResult.rows[0] || { domain_type: 'subdomain', hosting_type: 'apnaestore' };
         let planKey = 'subdomain_apnaestore';
-        if (store.domain_type === 'custom' && store.hosting_type === 'apnaestore') planKey = 'custom_domain_apnaestore';
-        else if (store.domain_type === 'custom' && store.hosting_type === 'own') planKey = 'custom_domain_own_hosting';
+        if (domainConfig.domain_type === 'custom' && domainConfig.hosting_type === 'apnaestore') planKey = 'custom_domain_apnaestore';
+        else if (domainConfig.domain_type === 'custom' && domainConfig.hosting_type === 'own') planKey = 'custom_domain_own_hosting';
 
         // Get pricing plan
         const planResult = await pool.query(
@@ -84,7 +133,9 @@ router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => 
         if (!planResult.rows.length) return res.status(404).json({ success: false, error: 'Plan not found' });
         const plan = planResult.rows[0];
 
-        const totalAmount = parseFloat(plan.base_amount) * (1 + parseFloat(plan.tax_percentage) / 100);
+        const fullAmount = parseFloat(plan.base_amount) * (1 + parseFloat(plan.tax_percentage) / 100);
+        const discountCalc = await discountService.calculateDiscount(tenantId, fullAmount);
+        const totalAmount = discountCalc.finalAmount;
         const orderId = `store_${storeId}_${Date.now()}`;
 
         // Save to pending_payments
@@ -107,7 +158,7 @@ router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => 
             returnUrl: `${API_URL}/store-builder/publish/success?storeId=${storeId}&orderId=${orderId}`,
         });
 
-        res.json({ success: true, data: { orderId, paymentSessionId: order.paymentSessionId, amount: totalAmount.toFixed(2) } });
+        res.json({ success: true, data: { orderId, paymentSessionId: order.paymentSessionId, amount: totalAmount.toFixed(2), discount: discountCalc } });
     } catch (e) {
         console.error('Initiate Cashfree error:', e);
         res.status(500).json({ success: false, error: e.message });

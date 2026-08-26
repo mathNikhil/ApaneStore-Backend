@@ -237,6 +237,112 @@ app.get('/api/public/is-test-tenant', async (req, res) => {
     }
 });
 
+
+// Store-level Cashfree payment webhook
+// Fires when a customer pays on a tenant's storefront
+app.post('/api/webhooks/store-payment/:storeId', express.raw({ type: 'application/json' }), async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const pool = require('./config/database');
+        const { decrypt } = require('./utils/encryption');
+        const crypto = require('crypto');
+
+        // Get store secret key for signature verification
+        const gatewayResult = await pool.query(
+            `SELECT spga.encrypted_secret_key
+             FROM store_payment_gateway_accounts spga
+             JOIN payment_gateways pg ON pg.id = spga.gateway_id
+             WHERE spga.store_id = $1 AND pg.gateway_key = 'cashfree'`,
+            [storeId]
+        );
+
+        const rawBody = req.body.toString();
+        const event = JSON.parse(rawBody);
+
+        // Verify signature if secret exists
+        if (gatewayResult.rows.length > 0) {
+            const secretKey = decrypt(gatewayResult.rows[0].encrypted_secret_key);
+            const signature = req.headers['x-webhook-signature'];
+            const timestamp = req.headers['x-webhook-timestamp'];
+            if (signature && timestamp) {
+                const signedPayload = timestamp + rawBody;
+                const expectedSig = crypto.createHmac('sha256', secretKey).update(signedPayload).digest('base64');
+                if (signature !== expectedSig) {
+                    return res.status(401).json({ success: false, error: 'Invalid signature' });
+                }
+            }
+        }
+
+        const eventType = event.type || event.event;
+        const orderData = event.data || event;
+
+        if (eventType === 'PAYMENT_SUCCESS' || eventType === 'payment.captured') {
+            const orderId = orderData.order?.order_id || orderData.order_id;
+            const amount = orderData.payment?.payment_amount || orderData.order?.order_amount;
+
+            // Get pending order data
+            let pendingOrder = null;
+            try {
+                const pendingResult = await pool.query(
+                    'SELECT * FROM cashfree_pending_orders WHERE order_id = $1',
+                    [orderId]
+                );
+                if (pendingResult.rows.length > 0) {
+                    pendingOrder = JSON.parse(pendingResult.rows[0].order_data);
+                }
+            } catch (e) {}
+
+            if (pendingOrder && Object.keys(pendingOrder).length > 0) {
+                // Create the actual order now that payment is confirmed
+                const { v4: uuidv4 } = require('uuid');
+                const dbOrderId = orderId;
+
+                const insertResult = await pool.query(
+                    `INSERT INTO orders
+                        (order_id, store_id, customer_id, customer_name, customer_phone, items, delivery_address,
+                         subtotal, delivery_charge, tax_amount, total_amount, payment_method, status, payment_status, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'cashfree', 'confirmed', 'paid', NOW())
+                     ON CONFLICT (order_id) DO UPDATE
+                     SET status = 'confirmed', payment_status = 'paid', updated_at = NOW()
+                     RETURNING id`,
+                    [
+                        dbOrderId, storeId,
+                        pendingOrder.customerId || null,
+                        pendingOrder.customerName || 'Customer',
+                        pendingOrder.customerPhone || null,
+                        JSON.stringify(pendingOrder.items || []),
+                        JSON.stringify(pendingOrder.deliveryAddress || {}),
+                        pendingOrder.subtotal || 0,
+                        pendingOrder.deliveryCharge || 0,
+                        pendingOrder.taxAmount || 0,
+                        amount || pendingOrder.totalAmount || 0
+                    ]
+                );
+
+                // Add status history
+                if (insertResult.rows.length > 0) {
+                    await pool.query(
+                        `INSERT INTO order_status_history (order_id, status, changed_by, notes)
+                         VALUES ($1, 'confirmed', 'system', 'Payment confirmed via Cashfree')`,
+                        [insertResult.rows[0].id]
+                    );
+                }
+
+                // Mark pending order as completed
+                await pool.query(
+                    'UPDATE cashfree_pending_orders SET status = $1 WHERE order_id = $2',
+                    ['completed', orderId]
+                ).catch(() => {});
+            }
+        }
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Store payment webhook error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Public pricing — no auth, needed for legal/marketing pages
 app.get('/api/public/pricing-plans', async (req, res) => {
     try {
