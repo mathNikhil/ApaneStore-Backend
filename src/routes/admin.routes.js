@@ -140,6 +140,40 @@ router.get('/revenue', authenticateAdmin, async (req, res) => {
     }
 });
 
+// Discount settings
+router.get('/discount-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const result = await pool.query(
+            `SELECT key, value FROM platform_settings WHERE key LIKE '%publish%' OR key IN ('referral_bonus_percent','max_referral_count')`
+        );
+        const data = {};
+        result.rows.forEach(r => { data[r.key] = parseFloat(r.value); });
+        res.json({ success: true, data });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.post('/discount-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const keys = [
+            'first_publish_30days','first_publish_90days','first_publish_365days',
+            'repeat_publish_30days','repeat_publish_90days','repeat_publish_365days',
+            'third_publish_30days','third_publish_90days','third_publish_365days',
+            'referral_bonus_percent','max_referral_count'
+        ];
+        for (const key of keys) {
+            if (req.body[key] !== undefined) {
+                await pool.query(
+                    `INSERT INTO platform_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+                    [key, String(req.body[key])]
+                );
+            }
+        }
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 // Invoice routes for super admin
 router.get('/tenants/:tenantId/invoices', authenticateAdmin, InvoiceController.adminListInvoices);
 router.get('/invoices/:subscriptionId/download', authenticateAdmin, InvoiceController.downloadInvoice);

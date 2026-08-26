@@ -26,6 +26,8 @@ const PaymentGatewayController = {
                 `SELECT spga.id, pg.gateway_key, pg.display_name,
                         spga.account_identifier, spga.kyc_status, spga.is_enabled,
                         spga.gateway_mode,
+                        spga.encrypted_api_key,
+                        spga.encrypted_secret_key,
                         CASE WHEN spga.encrypted_api_key IS NOT NULL THEN true ELSE false END as has_api_key,
                         CASE WHEN spga.encrypted_secret_key IS NOT NULL THEN true ELSE false END as has_secret_key
                  FROM store_payment_gateway_accounts spga
@@ -34,7 +36,18 @@ const PaymentGatewayController = {
                 [storeId]
             );
 
-            res.json({ success: true, data: result.rows });
+            // Decrypt first 2 chars only for display hint
+            const { decrypt } = require('../utils/encryption');
+            const rows = result.rows.map(row => {
+                let apiKeyHint = null;
+                let secretKeyHint = null;
+                try { if (row.encrypted_api_key) apiKeyHint = decrypt(row.encrypted_api_key).substring(0, 4); } catch(e) {}
+                try { if (row.encrypted_secret_key) secretKeyHint = decrypt(row.encrypted_secret_key).substring(0, 4); } catch(e) {}
+                const { encrypted_api_key, encrypted_secret_key, ...rest } = row;
+                return { ...rest, api_key_hint: apiKeyHint, secret_key_hint: secretKeyHint };
+            });
+
+            res.json({ success: true, data: rows });
         } catch (error) {
             logger.error('List store gateways error:', error);
             res.status(500).json({ success: false, error: error.message });

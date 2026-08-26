@@ -224,6 +224,38 @@ class StoreController {
 
             logger.info(`✅ Store updated: ${id}`);
 
+            // If payment gateway disabled — delete keys from DB for security
+            if (paymentSettings !== undefined) {
+                if (!paymentSettings.cashfreeEnabled) {
+                    await pool.query(
+                        `DELETE FROM store_payment_gateway_accounts
+                         WHERE store_id = $1 AND gateway_id = (
+                             SELECT id FROM payment_gateways WHERE gateway_key = 'cashfree'
+                         )`,
+                        [id]
+                    );
+                    logger.info(`🗑️ Cashfree keys deleted for store ${id} (gateway disabled)`);
+                }
+                if (!paymentSettings.stripeEnabled) {
+                    await pool.query(
+                        `DELETE FROM store_payment_gateway_accounts
+                         WHERE store_id = $1 AND gateway_id = (
+                             SELECT id FROM payment_gateways WHERE gateway_key = 'stripe'
+                         )`,
+                        [id]
+                    );
+                }
+                if (!paymentSettings.razorpayEnabled) {
+                    await pool.query(
+                        `DELETE FROM store_payment_gateway_accounts
+                         WHERE store_id = $1 AND gateway_id = (
+                             SELECT id FROM payment_gateways WHERE gateway_key = 'razorpay'
+                         )`,
+                        [id]
+                    );
+                }
+            }
+
             res.json({
                 success: true,
                 message: 'Store updated successfully',

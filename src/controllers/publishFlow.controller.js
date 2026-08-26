@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const cashfreeService = require('../services/paymentGateway.service');
+const discountService = require('../services/discount.service');
 
 // ✅ Publish flow: domain + hosting + payment.
 //
@@ -40,6 +41,8 @@ const PublishFlowController = {
             `INSERT INTO terms_acceptances (tenant_id, store_id, terms_version, ip_address) VALUES ($1, $2, $3, $4)`,
             [tenantId, id, TERMS_VERSION, req.ip || req.headers['x-forwarded-for'] || null]
         );
+        // Increment publish count for test tenants (no real payment)
+        await discountService.incrementPublishCount(tenantId);
         return res.json({ success: true, data: { subscription: subscriptionResult.rows[0], store: storeUpdateResult.rows[0] } });
     },
 
@@ -241,9 +244,17 @@ const PublishFlowController = {
             }
             const plan = planResult.rows[0];
 
-            const baseAmount = parseFloat(plan.base_amount);
-            const taxAmount = baseAmount * (parseFloat(plan.tax_percentage) / 100);
-            const totalAmount = baseAmount + taxAmount;
+            const fullAmount = parseFloat(plan.base_amount) * (1 + parseFloat(plan.tax_percentage) / 100);
+            let discountCalc = null;
+            try {
+                discountCalc = await discountService.calculateDiscount(tenantId, fullAmount, billingCycle || '365days', parseFloat(plan.tax_percentage || 18));
+            } catch(e) {
+                console.error('Discount calc error:', e.message);
+            }
+            const finalAmt = discountCalc ? discountCalc.finalAmount : fullAmount;
+            const baseAmount = (finalAmt / (1 + parseFloat(plan.tax_percentage) / 100)).toFixed(2);
+            const taxAmount = (finalAmt - parseFloat(baseAmount)).toFixed(2);
+            const totalAmount = finalAmt.toFixed(2);
 
             const subscriptionResult = await pool.query(
                 `INSERT INTO store_subscriptions
@@ -274,6 +285,10 @@ const PublishFlowController = {
                  VALUES ($1, $2, $3, $4)`,
                 [tenantId, id, TERMS_VERSION, req.ip || req.headers['x-forwarded-for'] || null]
             );
+
+            // Increment publish count and credit referrals after successful UPI payment
+            await discountService.incrementPublishCount(tenantId);
+            if (discountCalc && discountCalc.usableReferrals) await discountService.creditReferrals(tenantId, discountCalc.usableReferrals);
 
             res.json({
                 success: true,
