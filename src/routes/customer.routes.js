@@ -1,3 +1,4 @@
+const pool = require('./../config/database');
 const validate = require('../middleware/validate');
 const express = require('express');
 const router = express.Router({ mergeParams: true });
@@ -12,10 +13,18 @@ router.post('/otp/verify', validate('customerVerifyOTP'), CustomerController.ver
 // Creates a Cashfree payment session for storefront checkout
 router.post('/:storeId/cashfree/create-order', async (req, res) => {
     try {
-        const { storeId } = req.params;
+        let { storeId } = req.params;
+
+        // Resolve subdomain to numeric store ID if needed
+        if (isNaN(storeId)) {
+            const storeResult = await pool.query(
+                'SELECT id FROM stores WHERE subdomain = $1', [storeId]
+            );
+            if (!storeResult.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+            storeId = storeResult.rows[0].id;
+        }
         const { orderId, amount, customerPhone, customerName, customerEmail, orderData } = req.body;
 
-        const pool = require('../config/database');
 
         // Get store's Cashfree credentials
         const gatewayResult = await pool.query(
@@ -32,8 +41,8 @@ router.post('/:storeId/cashfree/create-order', async (req, res) => {
 
         const { decrypt } = require('../utils/encryption');
         const creds = gatewayResult.rows[0];
-        const appId = decrypt(creds.encrypted_api_key);
-        const secretKey = decrypt(creds.encrypted_secret_key);
+        const appId = decrypt(creds.encrypted_api_key).replace(/[\u2028\u2029\u0000-\u001F\u007F-\u009F]/g, '').trim();
+        const secretKey = decrypt(creds.encrypted_secret_key).replace(/[\u2028\u2029\u0000-\u001F\u007F-\u009F]/g, '').trim();
         const mode = creds.gateway_mode || 'sandbox';
 
         const baseUrl = mode === 'production'

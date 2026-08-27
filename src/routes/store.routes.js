@@ -165,6 +165,30 @@ router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => 
     }
 });
 
+// DELETE gateway keys — called when tenant switches away from payment gateway
+router.delete('/:id/payment-gateway/:provider/keys', authenticate, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const { id: storeId, provider } = req.params;
+        const tenantId = req.tenantId;
+
+        const storeCheck = await pool.query('SELECT id FROM stores WHERE id = $1 AND tenant_id = $2', [storeId, tenantId]);
+        if (!storeCheck.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+
+        await pool.query(
+            `DELETE FROM store_payment_gateway_accounts
+             WHERE store_id = $1 AND gateway_id = (
+                 SELECT id FROM payment_gateways WHERE gateway_key = $2
+             )`,
+            [storeId, provider]
+        );
+
+        res.json({ success: true, message: `${provider} keys deleted` });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Cashfree payment gateway keys
 router.post('/:id/payment-gateway/cashfree/keys', authenticate, PaymentGatewayController.saveCashfreeKeys);
 

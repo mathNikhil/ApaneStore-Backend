@@ -203,12 +203,7 @@ const runColumnMigrations = async () => {
                 ALTER TABLE pricing_plans ADD CONSTRAINT pricing_plans_plan_key_billing_cycle_key UNIQUE (plan_key, billing_cycle);
             END IF;
         END $$`,
-        `INSERT INTO pricing_plans (plan_key, billing_cycle, display_name, base_amount, tax_percentage, validity_days)
-         VALUES
-            ('subdomain_apnaestore', 'annual', 'Free Subdomain + ApnaEstore Hosting', 5000, 18, 365),
-            ('custom_domain_apnaestore', 'annual', 'Custom Domain + ApnaEstore Hosting', 5000, 18, 365),
-            ('custom_domain_own_hosting', 'annual', 'Custom Domain + Own Hosting', 5000, 18, 365)
-         ON CONFLICT (plan_key, billing_cycle) DO NOTHING`,
+
         // ✅ Applies the researched pricing strategy: entry-tier (subdomain)
         // priced to sit below competitors' basic tiers to remove friction
         // for first-time sellers; own-domain+our-hosting priced higher to
@@ -217,14 +212,18 @@ const runColumnMigrations = async () => {
         `UPDATE pricing_plans SET base_amount = 4499 WHERE plan_key = 'subdomain_apnaestore' AND billing_cycle = 'annual'`,
         `UPDATE pricing_plans SET base_amount = 7749 WHERE plan_key = 'custom_domain_apnaestore' AND billing_cycle = 'annual'`,
         `UPDATE pricing_plans SET base_amount = 4999 WHERE plan_key = 'custom_domain_own_hosting' AND billing_cycle = 'annual'`,
+        `DELETE FROM pricing_plans WHERE billing_cycle IN ('monthly','quarterly','annual')`,
         `INSERT INTO pricing_plans (plan_key, billing_cycle, display_name, base_amount, tax_percentage, validity_days)
          VALUES
-            ('subdomain_apnaestore', 'monthly', 'Free Subdomain + ApnaEstore Hosting', 449, 18, 30),
-            ('subdomain_apnaestore', 'quarterly', 'Free Subdomain + ApnaEstore Hosting', 1199, 18, 90),
-            ('custom_domain_apnaestore', 'monthly', 'Custom Domain + ApnaEstore Hosting', 799, 18, 30),
-            ('custom_domain_apnaestore', 'quarterly', 'Custom Domain + ApnaEstore Hosting', 2149, 18, 90),
-            ('custom_domain_own_hosting', 'monthly', 'Custom Domain + Own Hosting', 499, 18, 30),
-            ('custom_domain_own_hosting', 'quarterly', 'Custom Domain + Own Hosting', 1349, 18, 90)
+            ('subdomain_apnaestore', '30days', 'Free Subdomain + ApnaEstore Hosting', 592.37, 18, 30),
+            ('subdomain_apnaestore', '90days', 'Free Subdomain + ApnaEstore Hosting', 1439.83, 18, 90),
+            ('subdomain_apnaestore', '365days', 'Free Subdomain + ApnaEstore Hosting', 5083.90, 18, 365),
+            ('custom_domain_apnaestore', '30days', 'Custom Domain + ApnaEstore Hosting', 507.63, 18, 30),
+            ('custom_domain_apnaestore', '90days', 'Custom Domain + ApnaEstore Hosting', 1270.34, 18, 90),
+            ('custom_domain_apnaestore', '365days', 'Custom Domain + ApnaEstore Hosting', 4236.44, 18, 365),
+            ('custom_domain_own_hosting', '30days', 'Custom Domain + Own Hosting', 423.05, 18, 30),
+            ('custom_domain_own_hosting', '90days', 'Custom Domain + Own Hosting', 846.61, 18, 90),
+            ('custom_domain_own_hosting', '365days', 'Custom Domain + Own Hosting', 2541.53, 18, 365)
          ON CONFLICT (plan_key, billing_cycle) DO NOTHING`,
         // store_domain_config — one row per store, records the tenant's
         // domain/hosting choice from this flow and the (simulated, for now)
