@@ -114,8 +114,15 @@ const PaymentGatewayController = {
     // Create Cashfree payment order — called at customer checkout
     createCashfreeOrder: async (req, res) => {
         try {
-            const { storeId } = req.params;
+            let { storeId } = req.params;
             const { amount, orderId, customerName, customerEmail, customerPhone } = req.body;
+
+            // Resolve subdomain to numeric store ID if needed
+            if (isNaN(storeId)) {
+                const storeResult = await pool.query('SELECT id FROM stores WHERE subdomain = $1', [storeId]);
+                if (!storeResult.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+                storeId = storeResult.rows[0].id;
+            }
 
             // Get encrypted keys for this store
             const result = await pool.query(

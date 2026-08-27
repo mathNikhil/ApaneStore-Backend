@@ -22,6 +22,7 @@ class StoreController {
                 categoryImageShape,
                 categoryImageSize,
                 autoSlideProductImages,
+                addToCartLabel,
                 cartSettings,
                 paymentSettings,
                 addressSettings,
@@ -46,7 +47,7 @@ class StoreController {
 
             const config = {
                 brand: { storeName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },
-                products: { categories, banner: productBanner, enableImageZoom, enableProductSearch, categoryImageShape, categoryImageSize, autoSlideProductImages },
+                products: { categories, banner: productBanner, enableImageZoom, enableProductSearch, categoryImageShape, categoryImageSize, autoSlideProductImages, addToCartLabel },
                 cart: cartSettings,
                 payment: paymentSettings,
                 address: addressSettings,
@@ -105,6 +106,7 @@ class StoreController {
                 categoryImageShape,
                 categoryImageSize,
                 autoSlideProductImages,
+                addToCartLabel,
                 cartSettings,
                 paymentSettings,
                 addressSettings,
@@ -196,6 +198,7 @@ class StoreController {
                     enableImageZoom: enableImageZoom !== undefined ? enableImageZoom : existingProducts.enableImageZoom,
                     enableProductSearch: enableProductSearch !== undefined ? enableProductSearch : existingProducts.enableProductSearch,
                     categoryImageShape: categoryImageShape !== undefined ? categoryImageShape : existingProducts.categoryImageShape,
+                    addToCartLabel: addToCartLabel !== undefined ? addToCartLabel : existingProducts.addToCartLabel,
                     categoryImageSize: categoryImageSize !== undefined ? categoryImageSize : existingProducts.categoryImageSize,
                     autoSlideProductImages: autoSlideProductImages !== undefined ? autoSlideProductImages : existingProducts.autoSlideProductImages,
                 },
