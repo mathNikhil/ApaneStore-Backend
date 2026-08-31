@@ -19,6 +19,7 @@ const storeAdminSessionRoutes = require('./routes/storeAdminSession.routes');
 const pricingRoutes = require('./routes/pricing.routes');
 const invoiceRoutes = require('./routes/invoice.routes');
 const termsRoutes = require('./routes/terms.routes');
+const aiRoutes = require('./routes/ai.routes');
 const customerRoutes = require('./routes/customer.routes');
 const customerOrderRoutes = require('./routes/customerOrder.routes');
 const customerProfileRoutes = require('./routes/customerProfile.routes');
@@ -358,6 +359,7 @@ app.get('/api/public/pricing-plans', async (req, res) => {
 
 
 app.use('/api/terms', termsRoutes);
+app.use('/api/ai', aiRoutes);
 app.use('/api/store/:storeId/auth/otp', customerOtpLimiter);
 app.use('/api/store/:storeId/auth', customerRoutes);
 app.use('/api/store/:storeId/orders', customerOrderRoutes);
