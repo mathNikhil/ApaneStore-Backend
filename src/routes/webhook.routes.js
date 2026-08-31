@@ -56,6 +56,19 @@ router.post('/cashfree', express.raw({ type: 'application/json' }), async (req, 
                     "UPDATE pending_payments SET status='completed', updated_at=NOW() WHERE order_id=$1",
                     [orderId]
                 );
+
+                // Increment publish_count for tenant
+                const discountService = require('../services/discount.service');
+                const storeResult = await pool.query('SELECT tenant_id FROM stores WHERE id = $1', [storeId]);
+                if (storeResult.rows.length > 0) {
+                    const tenantId = storeResult.rows[0].tenant_id;
+                    await discountService.incrementPublishCount(tenantId);
+                    // Credit referrals if applicable
+                    const tenantResult = await pool.query('SELECT publish_count FROM tenants WHERE id = $1', [tenantId]);
+                    if (tenantResult.rows.length > 0 && tenantResult.rows[0].publish_count === 1) {
+                        // Was first publish, check referral bonus for next publish
+                    }
+                }
             }
         }
 
