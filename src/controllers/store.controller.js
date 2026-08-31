@@ -39,6 +39,18 @@ class StoreController {
                 });
             }
 
+            // Check global uniqueness of store name (case-insensitive)
+            const nameCheck = await pool.query(
+                'SELECT id FROM stores WHERE LOWER(store_name) = LOWER($1)',
+                [storeName.trim()]
+            );
+            if (nameCheck.rows.length > 0) {
+                return res.status(409).json({
+                    success: false,
+                    error: 'This store name is already taken. Please choose a different name.'
+                });
+            }
+
             // Generate subdomain from store name — reserved words and the
             // empty-slug edge case are handled inside generateSlug().
             const subdomain = generateSlug(storeName);
@@ -150,8 +162,8 @@ class StoreController {
             if (storeName && storeName.trim() !== '' && storeName !== existingStore.store_name) {
                 // Check if this new name is taken by ANOTHER store
                 const duplicateCheck = await pool.query(
-                    'SELECT id FROM stores WHERE store_name = $1 AND id != $2 AND tenant_id = $3',
-                    [storeName, id, tenantId]
+                    'SELECT id FROM stores WHERE LOWER(store_name) = LOWER($1) AND id != $2',
+                    [storeName, id]
                 );
 
                 if (duplicateCheck.rows.length > 0) {
