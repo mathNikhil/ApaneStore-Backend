@@ -134,7 +134,7 @@ router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => 
         const plan = planResult.rows[0];
 
         const fullAmount = parseFloat(plan.base_amount) * (1 + parseFloat(plan.tax_percentage) / 100);
-        const discountCalc = await discountService.calculateDiscount(tenantId, fullAmount);
+        const discountCalc = await discountService.calculateDiscount(tenantId, fullAmount, billingCycle, parseFloat(plan.tax_percentage));
         const totalAmount = discountCalc.finalAmount;
         const orderId = `store_${storeId}_${Date.now()}`;
 
@@ -144,7 +144,7 @@ router.post('/:id/payment/initiate-cashfree', authenticate, async (req, res) => 
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11)
              ON CONFLICT (order_id) DO NOTHING`,
             [orderId, storeId, tenantId, plan.plan_key, plan.display_name, plan.billing_cycle,
-             plan.base_amount, (totalAmount - parseFloat(plan.base_amount)).toFixed(2),
+             discountCalc.discountedBase || plan.base_amount, discountCalc.gstAmount ? discountCalc.gstAmount.toFixed(2) : (totalAmount - parseFloat(plan.base_amount)).toFixed(2),
              totalAmount.toFixed(2), plan.validity_days, termsAccepted]
         );
 
