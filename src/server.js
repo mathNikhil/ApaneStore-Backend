@@ -27,6 +27,11 @@ const publicRoutes = require('./routes/public.routes');
 const imageRoutes = require('./routes/imageRoutes');
 const trackingRoutes = require('./routes/tracking.routes');
 
+// ✅ NEW — WhatsApp Market routes (does not affect any existing routes)
+const waRoutes          = require('./routes/wa.routes');
+const addonAdminRoutes  = require('./routes/addon.admin.routes');
+const addonPublicRoutes = require('./routes/addon.public.routes');
+
 // Import database to ensure connection
 require('./config/database');
 
@@ -144,6 +149,9 @@ app.use('/uploads/tenants', (req, res, next) => {
     next();
 }, express.static(path.join(__dirname, '../uploads/tenants')));
 
+// ✅ NEW — serve WhatsApp Market uploaded images (public)
+app.use('/uploads/market', express.static(path.join(__dirname, '../public/uploads/market')));
+
 // Health check
 app.get('/health', (req, res) => {
     res.json({
@@ -181,6 +189,10 @@ app.use('/api/tenants', tenantRoutes);
 app.use('/api/stores', imageRoutes); 
 app.use('/api/stores', storeRoutes);
 
+// ✅ NEW — WhatsApp Market API (completely separate from all existing routes)
+app.use('/api/stores/:storeId/market', waRoutes);
+app.use('/api/admin/addon-plans',       addonAdminRoutes);
+app.use('/api/addon-plans',             addonPublicRoutes);
 
 // Public webhook — Cashfree calls this directly with its own signature,
 // never a tenant JWT, so it must NOT sit behind authenticate middleware.
@@ -374,6 +386,12 @@ const scheduleCleanupJob = require('./jobs/storeCleanupJob');
 require('./jobs/trackingJob'); // ✅ was never actually required anywhere before — cron.schedule() runs as a side effect of this require
 require('./jobs/subscriptionExpiryJob');
 require('./jobs/trialExpiryJob');
+
+// ✅ NEW — WhatsApp Market scheduler + restore sessions on restart
+require('./jobs/wa.scheduler.job');
+const { restoreAllSessions } = require('./services/wa.session.service');
+restoreAllSessions();
+
 scheduleCleanupJob();
 
 // 404 handler
@@ -404,8 +422,10 @@ app.listen(PORT, () => {
     console.log(`🛡️ Admin API: http://localhost:${PORT}/api/admin`);
     console.log(`📋 Store Admin Orders: http://localhost:${PORT}/api/store/:storeId/admin/orders`);
     console.log(`👤 Store Admin Customers: http://localhost:${PORT}/api/store/:storeId/admin/customers`);
+    console.log(`💬 WhatsApp Market API: http://localhost:${PORT}/api/stores/:storeId/market`);
     console.log(`🕐 Draft store cleanup job scheduled (daily at 2:00 AM)`);
     console.log(`📦 Courier tracking auto-update job scheduled (every 60 minutes)`);
+    console.log(`📲 WhatsApp Market scheduler started`);
 });
 
 module.exports = app;
