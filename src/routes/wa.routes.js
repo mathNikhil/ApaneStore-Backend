@@ -3,8 +3,8 @@
 
 const express  = require('express');
 const router   = express.Router({ mergeParams: true });
-const db       = require('../db');
-const auth     = require('../middleware/auth');
+const db       = require('../config/database');
+const { authenticate: auth } = require('../middleware/auth');
 const {
   createSession, getQR, isConnected, disconnectSession,
 } = require('../services/wa.session.service');
