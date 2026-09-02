@@ -4,8 +4,8 @@
 
 const express = require('express');
 const router  = express.Router();
-const db      = require('../db');
-const auth    = require('../middleware/auth');
+const db      = require('../config/database');
+const { authenticate: auth } = require('../middleware/auth');
 const { createOrder } = require('../services/paymentGateway.service');
 const { isTestTenant } = require('../services/paymentGateway.service');
 

@@ -9,7 +9,7 @@ const {
 const qrcode   = require('qrcode');
 const path     = require('path');
 const fs       = require('fs');
-const db       = require('../db');
+const db       = require('../config/database');
 
 const SESSION_DIR = path.join(__dirname, '../../sessions');
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });

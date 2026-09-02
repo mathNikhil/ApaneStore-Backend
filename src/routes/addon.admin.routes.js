@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router  = express.Router();
-const db      = require('../db');
+const db      = require('../config/database');
 
 // ─── GET all addon plans ─────────────────────────────────────────────────────
 router.get('/', async (req, res) => {

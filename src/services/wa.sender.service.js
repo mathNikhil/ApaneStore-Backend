@@ -2,7 +2,7 @@
 // Handles actual message sending for both Personal and WABA modes
 
 const axios   = require('axios');
-const db      = require('../db');
+const db      = require('../config/database');
 const { getSocket } = require('./wa.session.service');
 
 const DAILY_LIMIT = 75; // personal only
