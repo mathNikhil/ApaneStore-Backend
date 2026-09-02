@@ -10,7 +10,7 @@ const SELLER = {
   stateCode: '07',
   gstin: 'Applied For',
   udyam: 'UDYAM-DL-06-0221356',
-  email: 'nikhil.mathur1215@gmail.com',
+  email: 'aapnaestore@gmail.com',
   phone: '+91 9818410640',
   sac: '998314',
 };
@@ -188,7 +188,7 @@ const generateInvoicePDF = (invoice, subscription, store, tenant) => {
       drawLine(doc, footerY);
       doc.rect(40, footerY + 1, 515, 55).fill('#f2f4f7');
       doc.fillColor('#556067').font('Helvetica').fontSize(7)
-        .text('This invoice is issued by Nikhil Mathur HUF operating as AapnaEstore. For queries contact: nikhil.mathur1215@gmail.com | +91 9818410640', 45, footerY + 8, { width: 505, align: 'center' })
+        .text('This invoice is issued by Nikhil Mathur HUF operating as AapnaEstore. For queries contact: aapnaestore@gmail.com | +91 9818410640', 45, footerY + 8, { width: 505, align: 'center' })
         .text('AapnaEstore is a software platform only. It does not handle, process, or hold any payments on behalf of store owners.', 45, footerY + 20, { width: 505, align: 'center' })
         .text(`© ${new Date().getFullYear()} Nikhil Mathur HUF. All rights reserved. | aapnaestore.com`, 45, footerY + 32, { width: 505, align: 'center' });
 
