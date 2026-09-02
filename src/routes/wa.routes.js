@@ -14,11 +14,14 @@ const path     = require('path');
 const fs       = require('fs');
 
 // ─── Media upload setup ──────────────────────────────────────────────────────
-const uploadDir = path.join(__dirname, '../../public/uploads/market');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
 const storage = multer.diskStorage({
-  destination: uploadDir,
+  destination: (req, file, cb) => {
+    // Get tenantId from authenticated user
+    const tenantId = req.tenantId || 'unknown';
+    const uploadDir = path.join(__dirname, `../../public/uploads/market/${tenantId}`);
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    cb(null, uploadDir);
+  },
   filename: (req, file, cb) => {
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(file.originalname)}`);
   },
@@ -169,10 +172,35 @@ router.post('/waba/test', async (req, res) => {
 // ════════════════════════════════════════════════════════
 // MEDIA UPLOAD
 // ════════════════════════════════════════════════════════
-router.post('/media/upload', upload.single('image'), (req, res) => {
+router.post('/media/upload', upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const url = `${process.env.API_BASE_URL}/uploads/market/${req.file.filename}`;
-  res.json({ url });
+  try {
+    const sharp     = require('sharp');
+    const tenantId  = req.tenantId || 'unknown';
+    const baseUrl   = process.env.API_BASE_URL || 'https://api.aapnaestore.com';
+    const uploadDir = path.join(__dirname, `../../public/uploads/market/${tenantId}`);
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+    const filename  = `${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+    const outPath   = path.join(uploadDir, filename);
+
+    // Compress with sharp — same as store builder (82% quality, max 1200px wide)
+    await sharp(req.file.buffer || req.file.path)
+      .resize({ width: 1200, withoutEnlargement: true })
+      .jpeg({ quality: 82, progressive: true })
+      .toFile(outPath);
+
+    // Delete original multer temp file if it exists
+    if (req.file.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    const url = `${baseUrl}/uploads/market/${tenantId}/${filename}`;
+    res.json({ url });
+  } catch (err) {
+    console.error('[WA Upload]', err);
+    res.status(500).json({ error: 'Image processing failed' });
+  }
 });
 
 // ════════════════════════════════════════════════════════
