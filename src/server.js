@@ -191,6 +191,7 @@ app.use('/api/stores', storeRoutes);
 
 // ✅ NEW — WhatsApp Market API (completely separate from all existing routes)
 app.use('/api/stores/:storeId/market', waRoutes);
+app.use('/api/tenants/:storeId/market', waRoutes);
 const { authenticateAdmin } = require('./middleware/admin.auth');
 app.use('/api/admin/addon-plans', authenticateAdmin, addonAdminRoutes);
 app.use('/api/addon-plans',             addonPublicRoutes);
