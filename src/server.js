@@ -190,7 +190,6 @@ app.use('/api/stores', imageRoutes);
 app.use('/api/stores', storeRoutes);
 
 // ✅ NEW — WhatsApp Market API (completely separate from all existing routes)
-app.use('/api/stores/:storeId/market', waRoutes);
 app.use('/api/tenants/:storeId/market', waRoutes);
 const { authenticateAdmin } = require('./middleware/admin.auth');
 app.use('/api/admin/addon-plans', authenticateAdmin, addonAdminRoutes);
@@ -392,7 +391,10 @@ require('./jobs/trialExpiryJob');
 // ✅ NEW — WhatsApp Market scheduler + restore sessions on restart
 require('./jobs/wa.scheduler.job');
 const { restoreAllSessions } = require('./services/wa.session.service');
-restoreAllSessions();
+// Only restore sessions in cluster worker 0 to avoid conflicts
+if (!process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0') {
+  restoreAllSessions();
+}
 
 scheduleCleanupJob();
 

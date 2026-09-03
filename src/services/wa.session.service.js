@@ -21,7 +21,7 @@ const qrCache = new Map();
 
 // ─── Create / restore a session ─────────────────────────────────────────────
 async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
-  const sessionPath = path.join(SESSION_DIR, `store_${storeId}`);
+  const sessionPath = path.join(SESSION_DIR, `tenant_${storeId}`);
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
   const sock = makeWASocket({
@@ -46,7 +46,7 @@ async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
       const phone = sock.user?.id?.split(':')[0] || null;
       await db.query(
         `UPDATE wa_config SET session_exists=true, session_phone=$1, is_active=true, updated_at=NOW()
-         WHERE store_id=$2`,
+         WHERE tenant_id=$2`,
         [phone, storeId]
       );
       qrCache.delete(String(storeId));
@@ -62,7 +62,7 @@ async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
         fs.rmSync(sessionPath, { recursive: true, force: true });
         await db.query(
           `UPDATE wa_config SET session_exists=false, session_phone=NULL, is_active=false, updated_at=NOW()
-           WHERE store_id=$1`,
+           WHERE tenant_id=$1`,
           [storeId]
         );
         onDisconnect && onDisconnect('logged_out');
@@ -87,7 +87,9 @@ function getQR(storeId) {
 
 function isConnected(storeId) {
   const sock = sockets.get(String(storeId));
-  return !!sock && sock.ws?.readyState === 1; // OPEN
+  if (!sock) return false;
+  // Check if socket has an authenticated user — more reliable than WS readyState
+  return !!(sock.user || sock.authState?.creds?.me);
 }
 
 // ─── Disconnect and wipe session ────────────────────────────────────────────
@@ -97,11 +99,11 @@ async function disconnectSession(storeId) {
     try { await sock.logout(); } catch (_) {}
     sockets.delete(String(storeId));
   }
-  const sessionPath = path.join(SESSION_DIR, `store_${storeId}`);
+  const sessionPath = path.join(SESSION_DIR, `tenant_${storeId}`);
   fs.rmSync(sessionPath, { recursive: true, force: true });
   await db.query(
     `UPDATE wa_config SET session_exists=false, session_phone=NULL, is_active=false, updated_at=NOW()
-     WHERE store_id=$1`,
+     WHERE tenant_id=$1`,
     [storeId]
   );
 }
@@ -109,9 +111,9 @@ async function disconnectSession(storeId) {
 // ─── On server restart: restore all saved sessions ──────────────────────────
 async function restoreAllSessions() {
   if (!fs.existsSync(SESSION_DIR)) return;
-  const dirs = fs.readdirSync(SESSION_DIR).filter(d => d.startsWith('store_'));
+  const dirs = fs.readdirSync(SESSION_DIR).filter(d => d.startsWith('tenant_'));
   for (const dir of dirs) {
-    const storeId = dir.replace('store_', '');
+    const storeId = dir.replace('tenant_', '');
     console.log(`[WA-Session] Restoring store ${storeId}`);
     await createSession(storeId, {
       onReady: (phone) => console.log(`[WA-Session] Store ${storeId} restored — ${phone}`),

@@ -16,7 +16,7 @@ cron.schedule('* * * * *', async () => {
     const { rows: dueMessages } = await db.query(`
       SELECT m.*
       FROM wa_messages m
-      JOIN wa_subscriptions s ON s.store_id = m.store_id AND s.is_active = true
+      JOIN wa_subscriptions s ON s.tenant_id = m.tenant_id AND s.is_active = true
       WHERE m.status = 'scheduled'
         AND m.scheduled_at <= NOW()
       ORDER BY m.scheduled_at ASC
@@ -56,6 +56,21 @@ async function handleRepeat(message) {
     [next, message.id]
   );
 }
+
+// Clean up sent/failed messages older than 24 hours
+const cron2 = require('node-cron');
+cron2.schedule('0 * * * *', async () => {
+  try {
+    const { rowCount } = await db.query(
+      `DELETE FROM wa_messages 
+       WHERE status IN ('sent','failed') 
+       AND sent_at < NOW() - INTERVAL '24 hours'`
+    );
+    if (rowCount > 0) console.log(`[WA-Cleanup] Deleted ${rowCount} old messages`);
+  } catch (err) {
+    console.error('[WA-Cleanup] Error:', err.message);
+  }
+});
 
 console.log('[WA-Scheduler] Started — checking every minute for due messages');
 module.exports = {};
