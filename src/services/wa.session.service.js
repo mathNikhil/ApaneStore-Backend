@@ -21,6 +21,14 @@ const qrCache = new Map();
 
 // ─── Create / restore a session ─────────────────────────────────────────────
 async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
+  // If socket already exists and is connected, don't create a new one
+  const existingSocket = sockets.get(String(storeId));
+  if (existingSocket && (existingSocket.user || existingSocket.authState?.creds?.me)) {
+    console.log(`[WA-Session] Store ${storeId} already connected — skipping createSession`);
+    onReady && onReady(existingSocket.user?.id?.split(':')[0]);
+    return;
+  }
+
   const sessionPath = path.join(SESSION_DIR, `tenant_${storeId}`);
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
@@ -51,8 +59,10 @@ async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
       // Force save credentials to disk immediately
       await saveCreds();
       await db.query(
-        `UPDATE wa_config SET session_exists=true, session_phone=$1, is_active=true, updated_at=NOW()
-         WHERE tenant_id=$2`,
+        `INSERT INTO wa_config (tenant_id, mode, session_exists, session_phone, is_active, gap_seconds)
+         VALUES ($2, 'personal', true, $1, true, 2)
+         ON CONFLICT (tenant_id) DO UPDATE SET
+           session_exists=true, session_phone=$1, is_active=true, updated_at=NOW()`,
         [phone, storeId]
       );
       qrCache.delete(String(storeId));

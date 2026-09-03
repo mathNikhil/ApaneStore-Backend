@@ -35,11 +35,22 @@ router.use(auth);
 // SUBSCRIPTION CHECK
 // ════════════════════════════════════════════════════════
 router.get('/subscription', async (req, res) => {
-  const storeId = req.tenantId; // tenant-level
+  const storeId = req.tenantId;
   const { rows } = await db.query(
-    `SELECT * FROM wa_subscriptions WHERE tenant_id=$1`, [storeId]
+    `SELECT s.*, p.max_scheduled, p.name as plan_name_full,
+            EXTRACT(DAY FROM s.expires_at - NOW()) as days_remaining
+     FROM wa_subscriptions s
+     LEFT JOIN addon_plans p ON p.id = s.addon_plan_id
+     WHERE s.tenant_id=$1`, [storeId]
   );
-  res.json(rows[0] || { is_active: false });
+  if (!rows[0]) return res.json({ is_active: false });
+  const sub = rows[0];
+  res.json({
+    ...sub,
+    quota_remaining: (sub.max_scheduled || 0) - (sub.quota_used || 0),
+    expiry_warning: sub.days_remaining <= 3 && sub.days_remaining > 0,
+    days_remaining: Math.max(0, Math.floor(sub.days_remaining || 0)),
+  });
 });
 
 router.post('/subscription/activate', async (req, res) => {
@@ -378,6 +389,19 @@ router.get('/messages/:messageId/log', async (req, res) => {
 });
 
 module.exports = router;
+
+// ════════════════════════════════════════════════════════
+// MANUAL DEACTIVATION
+// ════════════════════════════════════════════════════════
+router.post('/deactivate', async (req, res) => {
+  try {
+    const { deactivateSubscription } = require('../services/wa.subscription.service');
+    await deactivateSubscription(req.tenantId, 'manual');
+    res.json({ success: true, message: 'Subscription deactivated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ════════════════════════════════════════════════════════
 // PUBLIC — ADDON PLANS (no auth needed)
