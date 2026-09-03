@@ -67,8 +67,16 @@ async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
         );
         onDisconnect && onDisconnect('logged_out');
       } else {
-        // Network drop — reconnect after 5s
-        setTimeout(() => createSession(storeId, { onQR, onReady, onDisconnect }), 5000);
+        // Only auto-reconnect if session was authenticated (not a QR timeout)
+        const wasAuthenticated = fs.existsSync(path.join(sessionPath, 'creds.json'));
+        if (wasAuthenticated) {
+          setTimeout(() => createSession(storeId, {
+            onReady: (phone) => console.log(`[WA-Session] Store ${storeId} reconnected — ${phone}`),
+            onDisconnect,
+          }), 5000);
+        } else {
+          console.log(`[WA-Session] Store ${storeId} QR timeout — not reconnecting`);
+        }
       }
     }
   });

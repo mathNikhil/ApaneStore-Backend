@@ -348,13 +348,14 @@ router.post('/messages/draft', async (req, res) => {
 
 router.put('/messages/:messageId', async (req, res) => {
   const { recipients, media_url, caption, scheduled_at, repeat_type } = req.body;
+  const status = scheduled_at ? 'scheduled' : 'draft';
   const { rows } = await db.query(
     `UPDATE wa_messages SET recipients=$1, media_url=$2, caption=$3,
-     scheduled_at=$4, repeat_type=$5
-     WHERE id=$6 AND tenant_id=$7 RETURNING *`,
+     scheduled_at=$4, repeat_type=$5, status=$6
+     WHERE id=$7 AND tenant_id=$8 RETURNING *`,
     [JSON.stringify(recipients), media_url,
      typeof caption === 'object' ? JSON.stringify(caption) : caption,
-     scheduled_at || null, repeat_type, req.params.messageId, req.tenantId]
+     scheduled_at || null, repeat_type, status, req.params.messageId, req.tenantId]
   );
   res.json(rows[0]);
 });
@@ -377,3 +378,113 @@ router.get('/messages/:messageId/log', async (req, res) => {
 });
 
 module.exports = router;
+
+// ════════════════════════════════════════════════════════
+// PUBLIC — ADDON PLANS (no auth needed)
+// ════════════════════════════════════════════════════════
+router.get('/plans', async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT id, name, description, price_monthly, price_yearly,
+              daily_msg_limit, max_scheduled, image_retain_days,
+              gap_seconds_min, is_recommended, is_active
+       FROM addon_plans
+       WHERE is_active = true AND addon_type = 'whatsapp_market'
+       ORDER BY sort_order ASC, price_monthly ASC`
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════
+// MARKET SUBSCRIPTION PAYMENT
+// ════════════════════════════════════════════════════════
+
+// POST /market/subscribe — create Cashfree order for market plan
+router.post('/subscribe', async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { plan_id } = req.body;
+
+    // Get tenant info
+    const { rows: tenants } = await db.query(
+      `SELECT id, email, mobile, company_name FROM tenants WHERE id=$1`, [tenantId]
+    );
+    if (!tenants[0]) return res.status(404).json({ error: 'Tenant not found' });
+    const tenant = tenants[0];
+
+    // Get plan details
+    const { rows: plans } = await db.query(
+      `SELECT * FROM addon_plans WHERE id=$1 AND is_active=true`, [plan_id]
+    );
+    if (!plans[0]) return res.status(404).json({ error: 'Plan not found' });
+    const plan = plans[0];
+
+    // Create Cashfree order using existing payment service
+    const { createOrder } = require('../services/paymentGateway.service');
+    const orderId = `WA_${tenantId}_${plan_id}_${Date.now()}`;
+
+    const amountRupees = plan.price_monthly / 100; // stored in paise
+    const result = await createOrder({
+      orderId,
+      amount: amountRupees,
+      currency: 'INR',
+      customerName: tenant.company_name || 'Tenant',
+      customerEmail: tenant.email || 'tenant@aapnaestore.com',
+      customerPhone: tenant.mobile || '9999999999',
+      returnUrl: `https://aapnaestore.com/market?order_id=${orderId}`,
+    });
+
+    // Store pending order in DB
+    await db.query(
+      `INSERT INTO cashfree_pending_orders (order_id, store_id, order_data, amount, status, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', NOW())
+       ON CONFLICT (order_id) DO NOTHING`,
+      [orderId, tenantId, JSON.stringify({ tenant_id: tenantId, plan_id, type: 'market_subscription' }), amountRupees]
+    );
+
+    res.json({ success: true, data: { paymentSessionId: result.paymentSessionId, orderId, plan } });
+  } catch (err) {
+    console.error('[Market Subscribe]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /market/subscription/status — check if payment succeeded
+router.get('/subscription/status', async (req, res) => {
+  try {
+    const { order_id } = req.query;
+    if (!order_id) return res.status(400).json({ error: 'order_id required' });
+
+    const { rows } = await db.query(
+      `SELECT status, order_data FROM cashfree_pending_orders WHERE order_id=$1`, [order_id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Order not found' });
+
+    // If paid, activate subscription
+    if (rows[0].status === 'paid') {
+      const orderData = rows[0].order_data;
+      const tenantId = orderData.tenant_id;
+      const planId = orderData.plan_id;
+
+      const { rows: plans } = await db.query(`SELECT * FROM addon_plans WHERE id=$1`, [planId]);
+      const plan = plans[0];
+
+      await db.query(
+        `INSERT INTO wa_subscriptions (tenant_id, addon_plan_id, plan_name, price_paid, is_active, activated_at, expires_at)
+         VALUES ($1,$2,$3,$4,true,NOW(), NOW() + INTERVAL '30 days')
+         ON CONFLICT (tenant_id) DO UPDATE SET
+           addon_plan_id=$2, plan_name=$3, price_paid=$4,
+           is_active=true, activated_at=NOW(),
+           expires_at=NOW() + INTERVAL '30 days'`,
+        [tenantId, planId, plan?.plan_name, plan?.price]
+      );
+    }
+
+    res.json({ success: true, status: rows[0].status, order_data: rows[0].order_data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
