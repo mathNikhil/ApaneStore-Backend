@@ -33,7 +33,11 @@ async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
 
   sockets.set(String(storeId), sock);
 
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', async () => {
+    console.log(`[WA-Creds] Store ${storeId} — saving credentials to disk`);
+    await saveCreds();
+    console.log(`[WA-Creds] Store ${storeId} — saved, creds.json exists:`, require('fs').existsSync(require('path').join(SESSION_DIR, 'tenant_' + storeId, 'creds.json')));
+  });
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
@@ -44,12 +48,15 @@ async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
 
     if (connection === 'open') {
       const phone = sock.user?.id?.split(':')[0] || null;
+      // Force save credentials to disk immediately
+      await saveCreds();
       await db.query(
         `UPDATE wa_config SET session_exists=true, session_phone=$1, is_active=true, updated_at=NOW()
          WHERE tenant_id=$2`,
         [phone, storeId]
       );
       qrCache.delete(String(storeId));
+      console.log(`[WA-Session] Store ${storeId} connected — ${phone}, creds saved`);
       onReady && onReady(phone);
     }
 
