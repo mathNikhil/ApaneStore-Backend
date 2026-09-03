@@ -1,18 +1,15 @@
-// src/jobs/wa.scheduler.job.js
-// Runs every minute — finds due messages and dispatches them
-
 const cron = require('node-cron');
 const db   = require('../config/database');
 const { dispatchMessage } = require('../services/wa.sender.service');
+const { incrementQuota, deactivateSubscription } = require('../services/wa.subscription.service');
 
-let isRunning = false; // prevent overlapping runs
+let isRunning = false;
 
+// ─── Every minute — send due messages ────────────────────────────────────────
 cron.schedule('* * * * *', async () => {
   if (isRunning) return;
   isRunning = true;
-
   try {
-    // Fetch up to 20 due messages (both personal and waba)
     const { rows: dueMessages } = await db.query(`
       SELECT m.*
       FROM wa_messages m
@@ -25,7 +22,13 @@ cron.schedule('* * * * *', async () => {
 
     for (const message of dueMessages) {
       try {
-        await dispatchMessage(message);
+        const result = await dispatchMessage(message);
+
+        // Only increment quota on successful send
+        if (result?.finalStatus === 'sent') {
+          await incrementQuota(message.tenant_id);
+        }
+
         await handleRepeat(message);
       } catch (err) {
         console.error(`[WA-Scheduler] Message ${message.id} failed:`, err.message);
@@ -42,28 +45,33 @@ cron.schedule('* * * * *', async () => {
   }
 });
 
-// After a successful send, schedule the next occurrence if repeat is set
-async function handleRepeat(message) {
-  if (message.repeat_type === 'none') return;
+// ─── Every hour — check expired subscriptions ─────────────────────────────────
+cron.schedule('0 * * * *', async () => {
+  try {
+    const { rows: expired } = await db.query(`
+      SELECT tenant_id FROM wa_subscriptions
+      WHERE is_active = true AND expires_at < NOW()
+    `);
 
-  const next = new Date(message.scheduled_at);
-  if (message.repeat_type === 'weekly')  next.setDate(next.getDate() + 7);
-  if (message.repeat_type === 'monthly') next.setMonth(next.getMonth() + 1);
+    for (const { tenant_id } of expired) {
+      console.log(`[WA-Expiry] Tenant ${tenant_id} subscription expired`);
+      await deactivateSubscription(tenant_id, 'expired');
+    }
 
-  await db.query(
-    `UPDATE wa_messages SET scheduled_at=$1, status='scheduled', sent_count=0, failed_count=0, sent_at=NULL
-     WHERE id=$2`,
-    [next, message.id]
-  );
-}
+    if (expired.length > 0) {
+      console.log(`[WA-Expiry] Deactivated ${expired.length} expired subscriptions`);
+    }
+  } catch (err) {
+    console.error('[WA-Expiry] Error:', err.message);
+  }
+});
 
-// Clean up sent/failed messages older than 24 hours
-const cron2 = require('node-cron');
-cron2.schedule('0 * * * *', async () => {
+// ─── Every hour — cleanup old history ────────────────────────────────────────
+cron.schedule('0 * * * *', async () => {
   try {
     const { rowCount } = await db.query(
-      `DELETE FROM wa_messages 
-       WHERE status IN ('sent','failed') 
+      `DELETE FROM wa_messages
+       WHERE status IN ('sent','failed')
        AND sent_at < NOW() - INTERVAL '24 hours'`
     );
     if (rowCount > 0) console.log(`[WA-Cleanup] Deleted ${rowCount} old messages`);
@@ -71,6 +79,19 @@ cron2.schedule('0 * * * *', async () => {
     console.error('[WA-Cleanup] Error:', err.message);
   }
 });
+
+// ─── Repeat logic ─────────────────────────────────────────────────────────────
+async function handleRepeat(message) {
+  if (message.repeat_type === 'none') return;
+  const next = new Date(message.scheduled_at);
+  if (message.repeat_type === 'weekly')  next.setDate(next.getDate() + 7);
+  if (message.repeat_type === 'monthly') next.setMonth(next.getMonth() + 1);
+  await db.query(
+    `UPDATE wa_messages SET scheduled_at=$1, status='scheduled',
+     sent_count=0, failed_count=0, sent_at=NULL WHERE id=$2`,
+    [next, message.id]
+  );
+}
 
 console.log('[WA-Scheduler] Started — checking every minute for due messages');
 module.exports = {};
