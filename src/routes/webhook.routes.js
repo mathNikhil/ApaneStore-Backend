@@ -27,6 +27,46 @@ router.post('/cashfree', express.raw({ type: 'application/json' }), async (req, 
 
         if (type === 'PAYMENT_SUCCESS' || type === 'PAYMENT_SUCCESS_WEBHOOK') {
             const orderId = data.order.order_id;
+
+            // ── Handle WhatsApp Market subscription (WA_ prefix) ──────────
+            if (orderId && orderId.startsWith('WA_')) {
+                try {
+                    // Mark order paid
+                    await pool.query(
+                        `UPDATE cashfree_pending_orders SET status='paid' WHERE order_id=$1`,
+                        [orderId]
+                    );
+                    // Get order data
+                    const { rows: orders } = await pool.query(
+                        `SELECT order_data FROM cashfree_pending_orders WHERE order_id=$1`, [orderId]
+                    );
+                    if (orders[0]) {
+                        const od = typeof orders[0].order_data === 'string'
+                            ? JSON.parse(orders[0].order_data) : orders[0].order_data;
+                        const { tenant_id, plan_id } = od;
+                        const { rows: plans } = await pool.query(
+                            `SELECT * FROM addon_plans WHERE id=$1`, [plan_id]
+                        );
+                        const plan = plans[0];
+                        await pool.query(
+                            `INSERT INTO wa_subscriptions
+                               (tenant_id, addon_plan_id, plan_name, price_paid, is_active, activated_at, expires_at)
+                             VALUES ($1,$2,$3,$4,true,NOW(),NOW()+INTERVAL '30 days')
+                             ON CONFLICT (tenant_id) DO UPDATE SET
+                               addon_plan_id=$2, plan_name=$3, price_paid=$4,
+                               is_active=true, activated_at=NOW(),
+                               expires_at=NOW()+INTERVAL '30 days'`,
+                            [tenant_id, plan_id, plan?.name, plan?.price_monthly]
+                        );
+                        console.log('[Webhook] ✅ Market subscription activated tenant:', tenant_id);
+                    }
+                } catch(e) {
+                    console.error('[Webhook] Market sub error:', e.message);
+                }
+                return res.json({ success: true });
+            }
+
+            // ── Handle store subscription (store_ prefix) ─────────────────
             // orderId format: store_{storeId}_{timestamp}
             const storeId = orderId.split('_')[1];
 
