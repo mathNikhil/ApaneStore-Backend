@@ -178,6 +178,23 @@ router.post('/discount-settings', authenticateAdmin, async (req, res) => {
 router.get('/tenants/:tenantId/invoices', authenticateAdmin, InvoiceController.adminListInvoices);
 router.get('/invoices/:subscriptionId/download', authenticateAdmin, InvoiceController.downloadInvoice);
 
+// WhatsApp Market subscriptions
+router.get('/market/subscriptions', authenticateAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT s.id, s.tenant_id, s.is_active, s.quota_used, s.price_paid,
+             s.activated_at, s.expires_at, s.deactivation_reason,
+             t.company_name as tenant_name, t.email as tenant_email,
+             p.max_scheduled, p.name as plan_name
+      FROM wa_subscriptions s
+      JOIN tenants t ON t.id = s.tenant_id
+      LEFT JOIN addon_plans p ON p.id = s.addon_plan_id
+      ORDER BY s.created_at DESC
+    `);
+    res.json(rows);
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
 // Trial admin routes
 const TrialController = require('../controllers/trial.controller');
