@@ -280,15 +280,31 @@ router.get('/contacts', async (req, res) => {
 });
 
 router.post('/contacts', async (req, res) => {
-  const { name, phone, group_id } = req.body;
-  // Sanitize phone — digits only
-  const cleanPhone = phone.replace(/\D/g, '');
-  const { rows } = await db.query(
-    `INSERT INTO wa_contacts (tenant_id, name, phone, group_id)
-     VALUES ($1,$2,$3,$4) RETURNING *`,
-    [req.tenantId, name, cleanPhone, group_id || null]
-  );
-  res.json(rows[0]);
+  try {
+    const { name, phone, group_ids, group_id } = req.body;
+    const cleanPhone = phone.replace(/\D/g, '');
+
+    // Create contact
+    const { rows } = await db.query(
+      `INSERT INTO wa_contacts (tenant_id, name, phone, group_id)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [req.tenantId, name, cleanPhone, group_id || null]
+    );
+    const contact = rows[0];
+
+    // Save group assignments to join table
+    // Support both group_ids (array) and group_id (single)
+    const gids = group_ids?.length ? group_ids : (group_id ? [group_id] : []);
+    for (const gid of gids) {
+      await db.query(
+        `INSERT INTO wa_contact_groups (contact_id, group_id)
+         VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [contact.id, gid]
+      ).catch(() => {});
+    }
+
+    res.json(contact);
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/contacts/:contactId', async (req, res) => {
@@ -343,6 +359,77 @@ router.post('/messages', async (req, res) => {
      scheduled_at, repeat_type || 'none']
   );
   res.json(rows[0]);
+});
+
+// POST /messages/batch — auto-split large groups into batches of 75
+router.post('/messages/batch', async (req, res) => {
+  try {
+    const { recipients, media_url, caption, scheduled_at, repeat_type, mode, gap_seconds = 2 } = req.body;
+    const tenantId = req.tenantId;
+    const BATCH_SIZE = 75;
+
+    // Resolve all contacts for splitting
+    const allContacts = [];
+    for (const r of recipients) {
+      if (r.type === 'group') {
+        const { rows } = await db.query(
+          `SELECT c.id, c.phone, c.name FROM wa_contacts c
+           JOIN wa_contact_groups cg ON cg.contact_id = c.id
+           WHERE cg.group_id=$1 AND c.tenant_id=$2`,
+          [r.id, tenantId]
+        );
+        rows.forEach(c => allContacts.push(c));
+      } else {
+        const { rows } = await db.query(
+          `SELECT id, phone, name FROM wa_contacts WHERE id=$1 AND tenant_id=$2`,
+          [r.id, tenantId]
+        );
+        if (rows[0]) allContacts.push(rows[0]);
+      }
+    }
+
+    // Deduplicate by phone
+    const seen = new Set();
+    const unique = allContacts.filter(c => {
+      if (seen.has(c.phone)) return false;
+      seen.add(c.phone); return true;
+    });
+
+    // Split into batches of 75
+    const batches = [];
+    for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+      batches.push(unique.slice(i, i + BATCH_SIZE));
+    }
+
+    const baseTime = new Date(scheduled_at);
+    const createdMessages = [];
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      // Each batch starts after previous batch finishes (75 contacts × gap_seconds)
+      const batchTime = new Date(baseTime.getTime() + i * BATCH_SIZE * gap_seconds * 1000);
+
+      const batchRecipients = batch.map(c => ({
+        type: 'contact', id: c.id, label: c.name, count: 1, phone: c.phone,
+      }));
+
+      const batchCaption = typeof caption === 'object' ? JSON.stringify(caption) : caption;
+
+      const { rows } = await db.query(
+        `INSERT INTO wa_messages
+           (tenant_id, mode, recipients, media_url, caption, scheduled_at, repeat_type, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'scheduled') RETURNING *`,
+        [tenantId, mode, JSON.stringify(batchRecipients), media_url,
+         batchCaption, batchTime.toISOString(), repeat_type || 'none']
+      );
+      createdMessages.push(rows[0]);
+    }
+
+    res.json({ success: true, batches: batches.length, total_contacts: unique.length, messages: createdMessages });
+  } catch (err) {
+    console.error('[Batch]', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/messages/draft', async (req, res) => {
