@@ -201,7 +201,7 @@ router.get('/invoices/bulk-download', authenticateAdmin, async (req, res) => {
   try {
     const pool = require('../config/database');
     const { rows } = await pool.query(`
-      SELECT ss.*, s.name as store_name, s.subdomain, t.company_name as tenant_name, t.phone as tenant_phone
+      SELECT ss.*, s.store_name, s.subdomain, t.company_name as tenant_name, t.phone as tenant_phone
       FROM store_subscriptions ss
       JOIN stores s ON s.id = ss.store_id
       JOIN tenants t ON t.id = s.tenant_id
