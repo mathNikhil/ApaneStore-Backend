@@ -361,6 +361,29 @@ router.post('/messages', async (req, res) => {
   res.json(rows[0]);
 });
 
+// GET /invoices — tenant's market payment history
+router.get('/invoices', async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT cpo.*, 
+              (cpo.order_data->>'plan_id')::int as plan_id_num,
+              p.name as plan_name,
+              (cpo.order_data->>'base_amount')::numeric as base_amount,
+              (cpo.order_data->>'gst_rate')::numeric as gst_rate,
+              (cpo.order_data->>'gst_amount')::numeric as gst_amount,
+              (cpo.order_data->>'total_amount')::numeric as total_amount
+       FROM cashfree_pending_orders cpo
+       LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
+       WHERE cpo.store_id = $1
+         AND cpo.order_id LIKE 'WA_%'
+         AND cpo.status = 'paid'
+       ORDER BY cpo.created_at DESC`,
+      [req.tenantId]
+    );
+    res.json(rows);
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 // POST /messages/batch — auto-split large groups into batches of 75
 router.post('/messages/batch', async (req, res) => {
   try {
