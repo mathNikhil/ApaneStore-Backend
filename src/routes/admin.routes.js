@@ -196,6 +196,41 @@ router.get('/market/subscriptions', authenticateAdmin, async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
+// Bulk download — just return all invoice data as JSON for frontend to print
+router.get('/invoices/bulk-download', authenticateAdmin, async (req, res) => {
+  try {
+    const pool = require('../config/database');
+    const { rows } = await pool.query(`
+      SELECT ss.*, s.name as store_name, s.subdomain, t.company_name as tenant_name, t.phone as tenant_phone
+      FROM store_subscriptions ss
+      JOIN stores s ON s.id = ss.store_id
+      JOIN tenants t ON t.id = s.tenant_id
+      WHERE ss.payment_status = 'paid'
+      ORDER BY ss.paid_at DESC
+    `);
+    // Generate HTML for printing all invoices
+    const invoiceRows = rows.map((sub, i) => {
+      const base = parseFloat(sub.base_amount || 0);
+      const gst = parseFloat(sub.tax_amount || 0);
+      const total = parseFloat(sub.total_amount || 0);
+      const date = sub.paid_at ? new Date(sub.paid_at).toLocaleDateString('en-IN') : 'N/A';
+      return `<tr><td>${sub.invoice_number || `INV-${i+1}`}</td><td>${sub.store_name}</td><td>${sub.tenant_name}</td><td>${date}</td><td>₹${base.toFixed(2)}</td><td>₹${gst.toFixed(2)}</td><td>₹${total.toFixed(2)}</td></tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><title>All Invoices</title>
+    <style>body{font-family:Arial;margin:40px}table{width:100%;border-collapse:collapse}
+    th{background:#f8fafc;padding:8px;text-align:left;border-bottom:2px solid #e8ecf0}
+    td{padding:8px;border-bottom:1px solid #f0f4f8}h1{color:#006d2f}</style></head><body>
+    <h1>AapnaEstore — All Store Invoices (Seller Copy)</h1>
+    <table><tr><th>Invoice</th><th>Store</th><th>Tenant</th><th>Date</th><th>Base</th><th>GST</th><th>Total</th></tr>
+    ${invoiceRows}</table></body></html>`;
+
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Disposition', 'attachment; filename="invoices.html"');
+    res.send(html);
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 // All WhatsApp Market invoices for admin revenue page
 router.get('/market/all-invoices', authenticateAdmin, async (req, res) => {
   try {
