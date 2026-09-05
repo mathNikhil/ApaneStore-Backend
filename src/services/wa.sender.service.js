@@ -28,7 +28,7 @@ async function incrementDailyCount(tenantId, by = 1) {
      ON CONFLICT (tenant_id, date) DO UPDATE
      SET sent_count = wa_daily_usage.sent_count + $2`,
     [tenantId, by]
-  );
+  ).catch(err => console.warn('[WA-Sender] Daily count update skipped:', err.message));
 }
 
 // ─── Resolve recipients → flat phone list ────────────────────────────────────
@@ -208,6 +208,7 @@ async function dispatchMessage(message) {
     `UPDATE wa_messages SET status=$1, sent_count=$2, failed_count=$3, sent_at=NOW() WHERE id=$4`,
     [finalStatus, sentCount, failedCount, messageId]
   );
+  return { finalStatus, sentCount, failedCount };
 }
 
 function tryParseJSON(str) {
