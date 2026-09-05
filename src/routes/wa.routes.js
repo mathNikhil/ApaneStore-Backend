@@ -537,10 +537,14 @@ router.post('/subscribe', async (req, res) => {
     const { createOrder } = require('../services/paymentGateway.service');
     const orderId = `WA_${tenantId}_${plan_id}_${Date.now()}`;
 
-    const amountRupees = plan.price_monthly / 100; // stored in paise
+    const baseRupees = plan.price_monthly / 100; // stored in paise
+    const gstRate = parseFloat(plan.gst_rate || 18);
+    const gstRupees = parseFloat((baseRupees * gstRate / 100).toFixed(2));
+    const totalRupees = parseFloat((baseRupees + gstRupees).toFixed(2));
+
     const result = await createOrder({
       orderId,
-      amount: amountRupees,
+      amount: totalRupees,
       currency: 'INR',
       customerName: tenant.company_name || 'Tenant',
       customerEmail: tenant.email || 'tenant@aapnaestore.com',
@@ -548,15 +552,22 @@ router.post('/subscribe', async (req, res) => {
       returnUrl: `https://aapnaestore.com/market?order_id=${orderId}`,
     });
 
-    // Store pending order in DB
+    // Store pending order in DB with GST details
     await db.query(
       `INSERT INTO cashfree_pending_orders (order_id, store_id, order_data, amount, status, created_at)
        VALUES ($1, $2, $3, $4, 'pending', NOW())
        ON CONFLICT (order_id) DO NOTHING`,
-      [orderId, tenantId, JSON.stringify({ tenant_id: tenantId, plan_id, type: 'market_subscription' }), amountRupees]
+      [orderId, tenantId, JSON.stringify({
+        tenant_id: tenantId, plan_id, type: 'market_subscription',
+        base_amount: baseRupees, gst_rate: gstRate,
+        gst_amount: gstRupees, total_amount: totalRupees
+      }), totalRupees]
     );
 
-    res.json({ success: true, data: { paymentSessionId: result.paymentSessionId, orderId, plan } });
+    res.json({ success: true, data: {
+      paymentSessionId: result.paymentSessionId, orderId, plan,
+      pricing: { base: baseRupees, gst_rate: gstRate, gst: gstRupees, total: totalRupees }
+    }});
   } catch (err) {
     console.error('[Market Subscribe]', err);
     res.status(500).json({ error: err.message });
