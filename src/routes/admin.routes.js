@@ -181,6 +181,7 @@ router.get('/invoices/:subscriptionId/download', authenticateAdmin, InvoiceContr
 // WhatsApp Market subscriptions
 router.get('/market/subscriptions', authenticateAdmin, async (req, res) => {
   try {
+    const pool = require('../config/database');
     const { rows } = await pool.query(`
       SELECT s.id, s.tenant_id, s.is_active, s.quota_used, s.price_paid,
              s.activated_at, s.expires_at, s.deactivation_reason,
