@@ -196,20 +196,38 @@ router.get('/market/subscriptions', authenticateAdmin, async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-// Bulk download — just return all invoice data as JSON for frontend to print
+// Bulk download — combined store + WA invoices in one HTML
 router.get('/invoices/bulk-download', authenticateAdmin, async (req, res) => {
   try {
     const pool = require('../config/database');
-    const { rows } = await pool.query(`
-      SELECT ss.*, s.store_name, s.subdomain, t.company_name as tenant_name, t.phone as tenant_phone
+
+    // Store invoices
+    const { rows: storeRows } = await pool.query(`
+      SELECT ss.*, s.store_name, s.subdomain, t.company_name as tenant_name
       FROM store_subscriptions ss
       JOIN stores s ON s.id = ss.store_id
       JOIN tenants t ON t.id = s.tenant_id
       WHERE ss.payment_status = 'paid'
       ORDER BY ss.paid_at DESC
     `);
-    // Generate HTML for printing all invoices
-    const invoiceRows = rows.map((sub, i) => {
+
+    // WA market invoices
+    const { rows: waRows } = await pool.query(`
+      SELECT cpo.id, cpo.order_id, cpo.amount, cpo.created_at,
+             (cpo.order_data->>'base_amount')::numeric as base_amount,
+             (cpo.order_data->>'gst_rate')::numeric as gst_rate,
+             (cpo.order_data->>'gst_amount')::numeric as gst_amount,
+             (cpo.order_data->>'total_amount')::numeric as total_amount,
+             t.company_name as tenant_name, t.email as tenant_email,
+             p.name as plan_name
+      FROM cashfree_pending_orders cpo
+      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::int
+      LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
+      WHERE cpo.order_id LIKE 'WA_%' AND cpo.status = 'paid'
+      ORDER BY cpo.created_at DESC
+    `);
+
+    const storeInvoiceRows = storeRows.map((sub, i) => {
       const base = parseFloat(sub.base_amount || 0);
       const gst = parseFloat(sub.tax_amount || 0);
       const total = parseFloat(sub.total_amount || 0);
@@ -217,16 +235,32 @@ router.get('/invoices/bulk-download', authenticateAdmin, async (req, res) => {
       return `<tr><td>${sub.invoice_number || `INV-${i+1}`}</td><td>${sub.store_name}</td><td>${sub.tenant_name}</td><td>${date}</td><td>₹${base.toFixed(2)}</td><td>₹${gst.toFixed(2)}</td><td>₹${total.toFixed(2)}</td></tr>`;
     }).join('');
 
+    const waInvoiceRows = waRows.map((order, i) => {
+      const amt = parseFloat(order.amount || 0);
+      const gstRate = parseFloat(order.gst_rate || 18);
+      const base = parseFloat(order.base_amount || (amt/(1+gstRate/100)).toFixed(2));
+      const gst = parseFloat((amt - base).toFixed(2));
+      const yr = new Date(order.created_at||Date.now()).getFullYear();
+      const invoiceNo = `WA-INV-${yr}-${String(order.id).padStart(4,'0')}`;
+      const date = order.created_at ? new Date(order.created_at).toLocaleDateString('en-IN') : 'N/A';
+      return `<tr><td>${invoiceNo}</td><td>${order.plan_name||'—'}</td><td>${order.tenant_name||'—'}</td><td>${date}</td><td>₹${base.toFixed(2)}</td><td>${gstRate}%</td><td>₹${gst.toFixed(2)}</td><td>₹${amt.toFixed(2)}</td></tr>`;
+    }).join('');
+
     const html = `<!DOCTYPE html><html><head><title>All Invoices</title>
-    <style>body{font-family:Arial;margin:40px}table{width:100%;border-collapse:collapse}
+    <style>body{font-family:Arial;margin:40px}table{width:100%;border-collapse:collapse;margin-bottom:40px}
     th{background:#f8fafc;padding:8px;text-align:left;border-bottom:2px solid #e8ecf0}
-    td{padding:8px;border-bottom:1px solid #f0f4f8}h1{color:#006d2f}</style></head><body>
-    <h1>AapnaEstore — All Store Invoices (Seller Copy)</h1>
+    td{padding:8px;border-bottom:1px solid #f0f4f8}h1{color:#006d2f}h2{color:#1976d2;margin-top:40px}
+    </style></head><body>
+    <h1>AapnaEstore — All Invoices (Seller Copy)</h1>
+    <h2>📦 Store Subscriptions (${storeRows.length})</h2>
     <table><tr><th>Invoice</th><th>Store</th><th>Tenant</th><th>Date</th><th>Base</th><th>GST</th><th>Total</th></tr>
-    ${invoiceRows}</table></body></html>`;
+    ${storeInvoiceRows || '<tr><td colspan="7">No store invoices</td></tr>'}</table>
+    <h2>📱 WhatsApp Market (${waRows.length})</h2>
+    <table><tr><th>Invoice</th><th>Plan</th><th>Tenant</th><th>Date</th><th>Base</th><th>GST%</th><th>GST</th><th>Total</th></tr>
+    ${waInvoiceRows || '<tr><td colspan="8">No WA invoices</td></tr>'}</table>
+    </body></html>`;
 
     res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', 'attachment; filename="invoices.html"');
     res.send(html);
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
