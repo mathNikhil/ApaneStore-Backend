@@ -282,7 +282,9 @@ router.get('/contacts', async (req, res) => {
 router.post('/contacts', async (req, res) => {
   try {
     const { name, phone, group_ids, group_id } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
     const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length < 8) return res.status(400).json({ error: 'Invalid phone number' });
 
     // Create contact
     const { rows } = await db.query(
@@ -304,7 +306,12 @@ router.post('/contacts', async (req, res) => {
     }
 
     res.json(contact);
-  } catch(err) { res.status(500).json({ error: err.message }); }
+  } catch(err) {
+    if (err.message?.includes('duplicate key')) {
+      return res.status(400).json({ error: 'This phone number already exists in your contacts.' });
+    }
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.put('/contacts/:contactId', async (req, res) => {
