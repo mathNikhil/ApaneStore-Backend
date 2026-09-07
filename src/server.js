@@ -122,6 +122,9 @@ app.use(cors({
         'https://admin.aapnaestore.com',
         'https://store-admin.aapnaestore.com',
         /^https:\/\/[a-z0-9-]+\.aapnaestore\.com$/,
+        // ✅ Custom tenant domains — add new ones here as they onboard
+        'https://apanestore.com',
+        'https://www.apanestore.com',
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
