@@ -122,23 +122,42 @@ cron.schedule('*/5 * * * *', async () => {
       
       if (resolved) {
         console.log(`[DNS-Poller] ✅ ${config.custom_domain} resolved! Issuing SSL...`);
-        
-        // Issue SSL cert
-        const sslOk = await issueSsl(config.custom_domain);
-        
+
+        const clean = config.custom_domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+        const fs = require('fs');
+        const certExists = fs.existsSync(`/etc/letsencrypt/live/${clean}/fullchain.pem`);
+
+        let sslOk = false;
+        if (certExists) {
+          console.log(`[DNS-Poller] SSL cert already exists for ${clean} — skipping certbot`);
+          sslOk = true;
+        } else {
+          sslOk = await issueSsl(config.custom_domain);
+        }
+
         if (sslOk) {
           // Add nginx block
           await addNginxBlock(config.custom_domain, config.subdomain);
-          
+
           // Mark as verified in DB
           await pool.query(
-            `UPDATE store_domain_config 
+            `UPDATE store_domain_config
              SET dns_status='verified', dns_verified_at=NOW(), updated_at=NOW()
              WHERE store_id=$1`,
             [config.store_id]
           );
-          
+
           console.log(`[DNS-Poller] ✅ ${config.custom_domain} fully configured!`);
+        } else {
+          // SSL failed but DNS is correct — mark verified anyway, nginx will serve HTTP
+          // Certbot will retry on next poll
+          console.log(`[DNS-Poller] ⚠️ SSL failed for ${clean} — marking verified, will retry SSL next poll`);
+          await pool.query(
+            `UPDATE store_domain_config
+             SET dns_status='verified', dns_verified_at=NOW(), updated_at=NOW()
+             WHERE store_id=$1`,
+            [config.store_id]
+          );
         }
       }
     }
