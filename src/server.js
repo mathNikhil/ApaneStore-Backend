@@ -387,6 +387,7 @@ const scheduleCleanupJob = require('./jobs/storeCleanupJob');
 require('./jobs/trackingJob'); // ✅ was never actually required anywhere before — cron.schedule() runs as a side effect of this require
 require('./jobs/subscriptionExpiryJob');
 require('./jobs/trialExpiryJob');
+require('./jobs/dns.poller.job'); // ✅ Auto-verifies custom domain DNS every 5 min
 
 // ✅ NEW — WhatsApp Market scheduler + restore sessions on restart
 require('./jobs/wa.scheduler.job');
