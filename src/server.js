@@ -115,17 +115,40 @@ const superAdminLimiter = superAdminLoginLimiter;
 
 app.use('/api', generalLimiter);
 app.use(cors({
-    origin: [
-        'https://aapnaestore.com',
-        'https://www.aapnaestore.com',
-        'https://app.aapnaestore.com',
-        'https://admin.aapnaestore.com',
-        'https://store-admin.aapnaestore.com',
-        /^https:\/\/[a-z0-9-]+\.aapnaestore\.com$/,
-        // ✅ Custom tenant domains — add new ones here as they onboard
-        'https://apanestore.com',
-        'https://www.apanestore.com',
-    ],
+    origin: async (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, server-to-server)
+        if (!origin) return callback(null, true);
+
+        // Always allow Aapna eStore owned domains
+        const ownedDomains = [
+            'https://aapnaestore.com',
+            'https://www.aapnaestore.com',
+            'https://app.aapnaestore.com',
+            'https://admin.aapnaestore.com',
+            'https://store-admin.aapnaestore.com',
+        ];
+        if (ownedDomains.includes(origin)) return callback(null, true);
+
+        // Allow any *.aapnaestore.com subdomain
+        if (/^https:\/\/[a-z0-9-]+\.aapnaestore\.com$/.test(origin)) return callback(null, true);
+
+        // Allow verified custom tenant domains — check store_domain_config
+        try {
+            const pool = require('./config/database');
+            const cleanOrigin = origin.replace(/^https?:\/\//, '').replace(/^www\./, '');
+            const result = await pool.query(
+                `SELECT 1 FROM store_domain_config
+                 WHERE (custom_domain = $1 OR custom_domain = $2 OR custom_domain = $3)
+                 AND dns_status = 'verified' LIMIT 1`,
+                [cleanOrigin, `www.${cleanOrigin}`, origin.replace(/^https?:\/\//, '')]
+            );
+            if (result.rows.length > 0) return callback(null, true);
+        } catch (e) {
+            console.error('CORS domain check error:', e.message);
+        }
+
+        callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
