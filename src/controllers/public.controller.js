@@ -10,7 +10,7 @@ class PublicStoreController {
 
             // First try subdomain match (e.g. test2.aapnaestore.com → 'test2')
             let result = await pool.query(
-                `SELECT id, store_id, store_name, subdomain, status, config
+                `SELECT id, store_id, store_name, subdomain, status, config, store_type
                  FROM stores
                  WHERE subdomain = $1 AND status = 'published'`,
                 [subdomain]
