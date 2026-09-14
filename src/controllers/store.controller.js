@@ -128,6 +128,7 @@ class StoreController {
                 images,
                 status,
                 lastBuilderStep,
+                storeType,
             } = req.body;
 
             // 1. Check if store exists
@@ -231,10 +232,11 @@ class StoreController {
                      config = $3,
                      status = COALESCE($4, status),
                      last_builder_step = COALESCE($5, last_builder_step, 1),
+                     store_type = COALESCE($7, store_type, 'product'),
                      updated_at = NOW()
                  WHERE id = $6
-                 RETURNING id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at`,
-                [finalStoreName, subdomain, JSON.stringify(config), status || null, lastBuilderStep || 1, id]
+                 RETURNING id, store_id, store_name, subdomain, status, config, last_builder_step, store_type, created_at, updated_at, published_at`,
+                [finalStoreName, subdomain, JSON.stringify(config), status || null, lastBuilderStep || 1, id, storeType || null]
             );
 
             logger.info(`✅ Store updated: ${id}`);
@@ -297,7 +299,7 @@ class StoreController {
             const tenantId = req.tenantId;
 
             const result = await pool.query(
-                `SELECT id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at
+                `SELECT id, store_id, store_name, subdomain, status, config, last_builder_step, store_type, created_at, updated_at, published_at
                  FROM stores
                  WHERE tenant_id = $1
                  ORDER BY created_at DESC`,
@@ -324,7 +326,7 @@ class StoreController {
             const tenantId = req.tenantId;
 
             const result = await pool.query(
-                `SELECT id, tenant_id, store_id, store_name, subdomain, status, config, last_builder_step, created_at, updated_at, published_at
+                `SELECT id, tenant_id, store_id, store_name, subdomain, status, config, last_builder_step, store_type, created_at, updated_at, published_at
                  FROM stores
                  WHERE id = $1 AND tenant_id = $2`,
                 [id, tenantId]
