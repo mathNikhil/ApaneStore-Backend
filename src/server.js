@@ -385,11 +385,31 @@ app.post('/api/webhooks/store-payment/:storeId', express.raw({ type: 'applicatio
 });
 
 // Public pricing — no auth, needed for legal/marketing pages
+app.get('/api/public/discount-info', async (req, res) => {
+    try {
+        const pool = require('./config/database');
+        const result = await pool.query(
+            "SELECT key, value FROM platform_settings WHERE key LIKE 'first_publish_%'"
+        );
+        const s = {};
+        result.rows.forEach(r => { s[r.key] = parseFloat(r.value); });
+        const maxDiscount = Math.max(
+            s.first_publish_30days || 0,
+            s.first_publish_90days || 0,
+            s.first_publish_365days || 0
+        ) || 40;
+        res.json({ success: true, data: { maxDiscount, discounts: s } });
+    } catch (error) {
+        console.error('Discount info error:', error);
+        res.json({ success: true, data: { maxDiscount: 40, discounts: {} } });
+    }
+});
+
 app.get('/api/public/pricing-plans', async (req, res) => {
     try {
         const _pool = require('./config/database');
         const result = await _pool.query(
-            'SELECT plan_key, display_name, billing_cycle, base_amount, tax_percentage, validity_days FROM pricing_plans WHERE is_active = true ORDER BY plan_key, billing_cycle'
+            'SELECT plan_key, display_name, billing_cycle, base_amount, tax_percentage, validity_days, first_store_discount, second_store_discount FROM pricing_plans WHERE is_active = true ORDER BY plan_key, billing_cycle'
         );
         res.json({ success: true, data: result.rows });
     } catch (e) {
@@ -404,6 +424,7 @@ app.use('/api/store/:storeId/auth/otp', customerOtpLimiter);
 app.use('/api/store/:storeId/auth', customerRoutes);
 app.use('/api/store/:storeId/cart', customerCartRoutes);
 app.use('/api/store/:storeId/slots', require('./routes/slots.routes'));
+app.use('/api/store/:storeId/inventory', require('./routes/inventory.routes'));
 app.use('/api/store/:storeId/orders', customerOrderRoutes);
 app.use('/api/store/:storeId/customers/me', customerProfileRoutes);
 app.use('/api/public', publicRoutes);
