@@ -189,12 +189,20 @@ const discountService = require('../services/discount.service');
                 });
             }
 
-            const verifyResult = await OTPService.verifyOTP(phone, otp, 'tenant_login');
-            if (!verifyResult.valid) {
-                return res.status(400).json({
-                    success: false,
-                    message: verifyResult.error || 'Invalid OTP'
-                });
+            // Test mobiles — accept hardcoded OTP 201807
+            const TEST_MOBILES = (process.env.TEST_MOBILES || '').split(',').map(m => m.trim());
+            const isTestMobile = TEST_MOBILES.includes(phone);
+            
+            if (isTestMobile && otp === '201807') {
+                // Valid test OTP — skip OTPService verification
+            } else {
+                const verifyResult = await OTPService.verifyOTP(phone, otp, 'tenant_login');
+                if (!verifyResult.valid) {
+                    return res.status(400).json({
+                        success: false,
+                        message: verifyResult.error || 'Invalid OTP'
+                    });
+                }
             }
 
             const JWT_SECRET = process.env.JWT_SECRET;
