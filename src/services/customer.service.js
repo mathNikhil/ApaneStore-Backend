@@ -42,6 +42,24 @@ class CustomerService {
                 customer = inserted.rows[0];
                 isNewCustomer = true;
                 logger.info(`✅ New customer auto-registered via OTP: ${phone} @ store ${storeId}`);
+
+                // Auto-add new customer to WhatsApp marketing contacts
+                try {
+                    const tenantRes = await pool.query('SELECT tenant_id FROM stores WHERE id = $1', [storeId]);
+                    if (tenantRes.rows.length > 0) {
+                        const tenantId = tenantRes.rows[0].tenant_id;
+                        await pool.query(
+                            `INSERT INTO wa_contacts (tenant_id, store_id, name, phone, created_at)
+                             VALUES ($1, $2, $3, $4, NOW())
+                             ON CONFLICT (tenant_id, phone) WHERE tenant_id IS NOT NULL DO NOTHING`,
+                            [tenantId, storeId, `Customer-${phone.slice(-4)}`, phone]
+                        );
+                        logger.info(`✅ Auto-added customer ${phone} to WA contacts for tenant ${tenantId}`);
+                    }
+                } catch (waErr) {
+                    // Never block order flow — just log
+                    logger.warn(`⚠️ Could not auto-add to WA contacts: ${waErr.message}`);
+                }
             }
 
             const token = jwt.sign(
