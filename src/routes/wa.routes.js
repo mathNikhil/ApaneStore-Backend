@@ -264,6 +264,7 @@ router.delete('/groups/:groupId', async (req, res) => {
 router.get('/contacts', async (req, res) => {
   const { rows } = await db.query(
     `SELECT c.*,
+       s.store_name,
        COALESCE(
          json_agg(json_build_object('id', g.id, 'name', g.name))
          FILTER (WHERE g.id IS NOT NULL), '[]'
@@ -271,8 +272,9 @@ router.get('/contacts', async (req, res) => {
      FROM wa_contacts c
      LEFT JOIN wa_contact_groups cg ON cg.contact_id = c.id
      LEFT JOIN wa_groups g ON g.id = cg.group_id
+     LEFT JOIN stores s ON s.id = c.store_id
      WHERE c.tenant_id=$1
-     GROUP BY c.id
+     GROUP BY c.id, s.store_name
      ORDER BY c.name`,
     [req.tenantId]
   );
