@@ -36,7 +36,7 @@ const storeAdminAuth = async (req, res, next) => {
         }
 
         const cred = result.rows[0];
-        const lastActive = cred.session_last_active ? new Date(cred.session_last_active).getTime() : 0;
+        const lastActive = cred.session_last_active ? new Date(cred.session_last_active).getTime() : Date.now();
         if (Date.now() - lastActive > IDLE_TIMEOUT_MS) {
             await pool.query(
                 'UPDATE store_admin_credentials SET active_session_token = NULL WHERE store_id = $1',
