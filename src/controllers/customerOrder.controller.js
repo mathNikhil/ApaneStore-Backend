@@ -57,6 +57,26 @@ const CustomerOrderController = {
                 [order.id, phone]
             );
 
+            // Auto-add customer to WA contacts using delivery address name + phone
+            try {
+                const tenantRes = await pool.query('SELECT tenant_id FROM stores WHERE id = $1', [storeId]);
+                if (tenantRes.rows.length > 0) {
+                    const tenantId = tenantRes.rows[0].tenant_id;
+                    const recipientName = deliveryAddress?.recipientName || customer.name || null;
+                    const recipientPhone = deliveryAddress?.recipientMobile || customer.phone || phone;
+                    if (recipientPhone) {
+                        await pool.query(
+                            `INSERT INTO wa_contacts (tenant_id, store_id, name, phone, created_at)
+                             VALUES ($1, $2, $3, $4, NOW())
+                             ON CONFLICT (tenant_id, phone) WHERE tenant_id IS NOT NULL DO NOTHING`,
+                            [tenantId, storeId, recipientName || recipientPhone, recipientPhone]
+                        );
+                    }
+                }
+            } catch (waErr) {
+                console.warn('⚠️ WA contact auto-add skipped:', waErr.message);
+            }
+
             res.status(201).json({ success: true, data: order });
         } catch (error) {
             console.error('❌ Create order error:', error);
