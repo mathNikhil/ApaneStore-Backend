@@ -108,7 +108,8 @@ const downloadCSV = async (req, res) => {
             ORDER BY inv.product_name, inv.variation_name, inv.size_label
         `, [storeId]);
         const headers = ['product_id','variation_id','size_id','product_name','variation_name','size_label','price','InStock','Sale','Return','Current_Stock'];
-        const rows = result.rows.map(r => [r.product_id, r.variation_id, r.size_id,
+        const rows = result.rows.map(r => [
+            `="${r.product_id}"`, `="${r.variation_id}"`, `="${r.size_id}"`,
             `"${r.product_name}"`, `"${r.variation_name}"`, `"${r.size_label}"`,
             r.price, r.stock_quantity, r.total_sold, r.total_returned, r.current_stock]);
         const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -123,22 +124,46 @@ const uploadCSV = async (req, res) => {
         const { storeId } = req.params;
         const { csvData } = req.body;
         if (!csvData) return res.status(400).json({ success: false, error: 'No CSV data' });
-        const lines = csvData.trim().split('\n');
-        const headers = lines[0].split(',').map(h => h.trim());
+        // Parse CSV properly handling quoted fields
+        const parseCSVLine = (line) => {
+            const cols = [];
+            let current = '';
+            let inQuotes = false;
+            for (let c of line) {
+                if (c === '"') { inQuotes = !inQuotes; }
+                else if (c === ',' && !inQuotes) { cols.push(current.trim()); current = ''; }
+                else { current += c; }
+            }
+            cols.push(current.trim());
+            return cols;
+        };
+
+        const lines = csvData.trim().replace(/\r/g, '').split('\n');
+        const headers = parseCSVLine(lines[0]);
         const inStockIdx = headers.indexOf('InStock');
         const productIdIdx = headers.indexOf('product_id');
         const variationIdIdx = headers.indexOf('variation_id');
         const sizeIdIdx = headers.indexOf('size_id');
         if (inStockIdx === -1) return res.status(400).json({ success: false, error: 'InStock column not found' });
+        // Strip Excel ="..." format and handle scientific notation
+        const toFullInt = (val) => {
+            if (!val) return val;
+            // Strip ="..." Excel text format
+            val = val.trim().replace(/^="?(.*?)"?$/, '$1');
+            return val;
+        };
+
         let updated = 0, skipped = 0, errors = [];
         for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',');
-            const productId = cols[productIdIdx]?.trim();
-            const variationId = cols[variationIdIdx]?.trim();
-            const sizeId = cols[sizeIdIdx]?.trim();
+            if (!lines[i].trim()) { skipped++; continue; }
+            const cols = parseCSVLine(lines[i]);
+            const productId = toFullInt(cols[productIdIdx]);
+            const variationId = toFullInt(cols[variationIdIdx]);
+            const sizeId = toFullInt(cols[sizeIdIdx]);
             const inStock = parseInt(cols[inStockIdx]?.trim());
             if (!productId || !variationId || !sizeId) { skipped++; continue; }
             if (isNaN(inStock) || inStock < 0) { errors.push(`Row ${i+1}: Invalid InStock`); skipped++; continue; }
+            console.log(`Upload matching: storeId=${storeId} productId=${productId} variationId=${variationId} sizeId=${sizeId}`);
             const r = await pool.query(
                 'UPDATE inventory SET stock_quantity=$1, updated_at=NOW() WHERE store_id=$2 AND product_id=$3 AND variation_id=$4 AND size_id=$5',
                 [inStock, storeId, productId, variationId, sizeId]);
