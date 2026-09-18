@@ -341,8 +341,8 @@ app.post('/api/webhooks/store-payment/:storeId', express.raw({ type: 'applicatio
                 const insertResult = await pool.query(
                     `INSERT INTO orders
                         (order_id, store_id, customer_id, customer_name, customer_phone, items, delivery_address,
-                         subtotal, delivery_charge, tax_amount, total_amount, payment_method, status, payment_status, created_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'cashfree', 'confirmed', 'paid', NOW())
+                         subtotal, delivery_charge, tax_amount, total_amount, payment_method, status, payment_status, order_type, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'cashfree', 'confirmed', 'paid', $12, NOW())
                      ON CONFLICT (order_id) DO UPDATE
                      SET status = 'confirmed', payment_status = 'paid', updated_at = NOW()
                      RETURNING id`,
@@ -356,7 +356,8 @@ app.post('/api/webhooks/store-payment/:storeId', express.raw({ type: 'applicatio
                         pendingOrder.subtotal || 0,
                         pendingOrder.deliveryCharge || 0,
                         pendingOrder.taxAmount || 0,
-                        amount || pendingOrder.totalAmount || 0
+                        amount || pendingOrder.totalAmount || 0,
+                        pendingOrder.orderType || 'delivery'
                     ]
                 );
 
