@@ -54,11 +54,23 @@ const StoreAdminPasswordController = {
             const tenantId = req.tenantId;
 
             const storeCheck = await pool.query(
-                'SELECT id FROM stores WHERE id = $1 AND tenant_id = $2',
+                'SELECT id, status, created_at FROM stores WHERE id = $1 AND tenant_id = $2',
                 [id, tenantId]
             );
             if (storeCheck.rows.length === 0) {
                 return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+
+            const store = storeCheck.rows[0];
+            const isPublished = store.status === 'published';
+            const daysSinceCreation = (Date.now() - new Date(store.created_at).getTime()) / (1000 * 60 * 60 * 24);
+            
+            if (!isPublished && daysSinceCreation > 7) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Store Admin access has expired. Publish your store to continue using Store Admin features.',
+                    expired: true
+                });
             }
 
             const newPassword = generatePassword();

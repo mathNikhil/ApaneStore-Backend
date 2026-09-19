@@ -49,13 +49,24 @@ const StoreAdminSessionController = {
             // ────────────────────────────────────────────────────────
 
             const storeResult = await pool.query(
-                'SELECT id, store_name FROM stores WHERE subdomain = $1',
+                'SELECT id, store_name, status, created_at FROM stores WHERE subdomain = $1',
                 [subdomain]
             );
             if (storeResult.rows.length === 0) {
                 return res.status(404).json({ success: false, error: 'Store not found' });
             }
             const store = storeResult.rows[0];
+
+            // 7-day trial check for unpublished stores
+            const isPublished = store.status === 'published';
+            const daysSinceCreation = (Date.now() - new Date(store.created_at).getTime()) / (1000 * 60 * 60 * 24);
+            if (!isPublished && daysSinceCreation > 7) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Store Admin trial has expired. Publish your store to continue.',
+                    expired: true
+                });
+            }
 
             const credResult = await pool.query(
                 'SELECT password_encrypted, active_session_token, session_last_active FROM store_admin_credentials WHERE store_id = $1',
