@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router({ mergeParams: true });
-const { getInventory, updateStock, downloadCSV, uploadCSV, syncStore } = require('../controllers/inventory.controller');
+const { getInventory, updateStock, downloadCSV, uploadCSV, syncStore, syncInventory } = require('../controllers/inventory.controller');
 const { storeAdminAuth } = require('../middleware/storeAdminAuth');
 
 router.get('/', storeAdminAuth, getInventory);
@@ -36,6 +36,31 @@ router.put('/threshold', storeAdminAuth, async (req, res) => {
         );
         res.json({ success: true, data: { threshold } });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// Tenant CSV sync endpoint (called from Step 2 after product upload)
+// Uses tenant JWT auth (not store admin auth)
+const { authenticate } = require('../middleware/auth');
+router.post('/sync-csv', authenticate, async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const { updates } = req.body;
+        if (!updates || !Array.isArray(updates)) {
+            return res.status(400).json({ success: false, error: 'Invalid updates' });
+        }
+        // First sync inventory to ensure all products are in inventory table
+        await syncInventory(storeId);
+        // Then update stock quantities
+        for (const { sizeId, inStock } of updates) {
+            await pool.query(
+                `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() WHERE store_id=$2 AND size_id=$3`,
+                [inStock, storeId, String(sizeId)]
+            );
+        }
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 module.exports = router;
