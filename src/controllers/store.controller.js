@@ -241,6 +241,14 @@ class StoreController {
 
             logger.info(`✅ Store updated: ${id}`);
 
+            // Auto-sync inventory whenever store config is saved
+            try {
+                const { syncInventory } = require('./inventory.controller');
+                await syncInventory(id);
+            } catch (e) {
+                logger.warn(`⚠️ Inventory sync failed for store ${id}: ${e.message}`);
+            }
+
             // If payment gateway disabled — delete keys from DB for security
             if (paymentSettings !== undefined) {
                 if (!paymentSettings.cashfreeEnabled) {

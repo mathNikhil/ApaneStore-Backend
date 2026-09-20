@@ -16,16 +16,16 @@ const syncInventory = async (storeId) => {
                     product.images?.[0]?.url || product.images?.[0]?.preview || null;
                 for (const size of variation.sizes || []) {
                     await pool.query(`
-                        INSERT INTO inventory (store_id, product_id, variation_id, size_id, product_name, variation_name, size_label, price, image_url)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                        INSERT INTO inventory (store_id, product_id, variation_id, size_id, product_name, variation_name, size_label, price, image_url, category_name)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                         ON CONFLICT (store_id, product_id, variation_id, size_id)
                         DO UPDATE SET product_name=EXCLUDED.product_name, variation_name=EXCLUDED.variation_name,
                             size_label=EXCLUDED.size_label, price=EXCLUDED.price, image_url=EXCLUDED.image_url,
-                            is_archived=FALSE, updated_at=NOW()
+                            category_name=EXCLUDED.category_name, is_archived=FALSE, updated_at=NOW()
                     `, [storeId, String(product.id), String(variation.id), String(size.id),
                         product.name || 'Unnamed', variation.name || 'Default',
                         size.size ? `${size.size} ${size.unit||''}`.trim() : 'Default',
-                        parseFloat(size.price)||0, variantImage]);
+                        parseFloat(size.price)||0, variantImage, category.name || '']);
                 }
             }
         }
@@ -88,8 +88,14 @@ const downloadCSV = async (req, res) => {
     try {
         const { storeId } = req.params;
         await syncInventory(storeId);
+
+        // Get category order from store config
+        const storeResult = await pool.query('SELECT config FROM stores WHERE id = $1', [storeId]);
+        const config = storeResult.rows[0]?.config;
+        const categoryOrder = (config?.products?.categories || []).map((c, idx) => ({ name: c.name?.toLowerCase(), idx }));
+
         const result = await pool.query(`
-            SELECT inv.*, COALESCE(s.total_sold,0) AS total_sold, COALESCE(r.total_returned,0) AS total_returned,
+            SELECT inv.*, inv.category_name, COALESCE(s.total_sold,0) AS total_sold, COALESCE(r.total_returned,0) AS total_returned,
                 (inv.stock_quantity - COALESCE(s.total_sold,0) + COALESCE(r.total_returned,0)) AS current_stock
             FROM inventory inv
             LEFT JOIN (SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
@@ -107,11 +113,27 @@ const downloadCSV = async (req, res) => {
             WHERE inv.store_id=$1 AND inv.is_archived=FALSE
             ORDER BY inv.product_name, inv.variation_name, inv.size_label
         `, [storeId]);
-        const headers = ['product_id','variation_id','size_id','product_name','variation_name','size_label','price','InStock','Sale','Return','Current_Stock'];
-        const rows = result.rows.map(r => [
-            `="${r.product_id}"`, `="${r.variation_id}"`, `="${r.size_id}"`,
-            `"${r.product_name}"`, `"${r.variation_name}"`, `"${r.size_label}"`,
-            r.price, r.stock_quantity, r.total_sold, r.total_returned, r.current_stock]);
+        const headers = ['category_name','product_name','variation_name','size','unit','price','InStock','Sale','Return','Current_Stock','product_id','variation_id','size_id'];
+        // Sort by tenant's category order
+        const sortedRows = result.rows.sort((a, b) => {
+            const aIdx = categoryOrder.find(c => c.name === (a.category_name||'').toLowerCase())?.idx ?? 999;
+            const bIdx = categoryOrder.find(c => c.name === (b.category_name||'').toLowerCase())?.idx ?? 999;
+            if (aIdx !== bIdx) return aIdx - bIdx;
+            return (a.product_name||'').localeCompare(b.product_name||'');
+        });
+
+        const rows = sortedRows.map(r => {
+            const sizeLabel = r.size_label || '';
+            // Split size_label into size and unit (e.g. "7 UK" -> size=7, unit=UK)
+            const sizeMatch = sizeLabel.match(/^([\d.]+)\s*(.*)$/);
+            const size = sizeMatch ? sizeMatch[1] : sizeLabel;
+            const unit = sizeMatch ? sizeMatch[2].trim() : '';
+            return [
+                `"${r.category_name || ''}"`, `"${r.product_name}"`, `"${r.variation_name}"`,
+                size, unit, r.price, r.stock_quantity, r.total_sold, r.total_returned, r.current_stock,
+                `="${r.product_id}"`, `="${r.variation_id}"`, `="${r.size_id}"`
+            ];
+        });
         const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="inventory-${storeId}.csv"`);
