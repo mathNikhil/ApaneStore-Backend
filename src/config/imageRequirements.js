@@ -13,7 +13,7 @@ const IMAGE_REQUIREMENTS = {
             maxSize: 3 * 1024 * 1024,
             allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
         },
-        processing: { width: 1200, height: 400, fit: 'cover' }
+        processing: { width: 1920, height: 1080, fit: 'cover' }
     },
     PRODUCT_MAIN: {
         display: { hint: 'Recommended: 800×800px • Max 2MB • JPG/PNG' },
