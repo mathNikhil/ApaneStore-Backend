@@ -17,7 +17,7 @@ async function processImage(buffer, imageType) {
         return await sharp(buffer)
             .rotate()
             .resize(processing.width, processing.height, { fit: processing.fit || 'cover', position: 'center' })
-            .webp({ quality: 82, effort: 4 })
+            .webp({ quality: 90, effort: 4 })
             .withMetadata(false)
             .toBuffer();
     } catch (error) {
