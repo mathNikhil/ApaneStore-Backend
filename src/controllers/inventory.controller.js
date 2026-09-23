@@ -40,13 +40,18 @@ const getInventory = async (req, res) => {
         const result = await pool.query(`
             SELECT inv.*,
                 COALESCE(s.total_sold,0) AS total_sold,
+                COALESCE(s.instore_sold,0) AS instore_sold,
+                COALESCE(s.online_sold,0) AS online_sold,
                 COALESCE(r.total_returned,0) AS total_returned,
                 (inv.stock_quantity - COALESCE(s.total_sold,0) + COALESCE(r.total_returned,0)) AS current_stock,
                 (inv.stock_quantity - COALESCE(s.total_sold,0) + COALESCE(r.total_returned,0)) * inv.price AS total_value
             FROM inventory inv
             LEFT JOIN (
                 SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
-                    item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_sold
+                    item->>'sizeId' AS size_id,
+                    SUM((item->>'quantity')::INTEGER) AS total_sold,
+                    SUM(CASE WHEN order_type = 'dine_in' THEN (item->>'quantity')::INTEGER ELSE 0 END) AS instore_sold,
+                    SUM(CASE WHEN order_type != 'dine_in' OR order_type IS NULL THEN (item->>'quantity')::INTEGER ELSE 0 END) AS online_sold
                 FROM orders, jsonb_array_elements(items::jsonb) AS item
                 WHERE store_id=$1 AND (
                     (order_type = 'dine_in' AND status IN ('confirmed', 'processing', 'delivered'))
