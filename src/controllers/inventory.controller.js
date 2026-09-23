@@ -48,7 +48,13 @@ const getInventory = async (req, res) => {
                 SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
                     item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_sold
                 FROM orders, jsonb_array_elements(items::jsonb) AS item
-                WHERE store_id=$1 AND status = 'delivered'
+                WHERE store_id=$1 AND (
+                    (order_type = 'dine_in' AND status IN ('confirmed', 'processing', 'delivered'))
+                    OR
+                    (order_type = 'delivery' AND status = 'delivered')
+                    OR
+                    (order_type IS NULL AND status = 'delivered')
+                )
                 GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId'
             ) s ON inv.store_id=s.store_id AND inv.product_id=s.product_id AND inv.variation_id=s.variation_id AND inv.size_id=s.size_id
             LEFT JOIN (
@@ -101,7 +107,13 @@ const downloadCSV = async (req, res) => {
             LEFT JOIN (SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
                 item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_sold
                 FROM orders, jsonb_array_elements(items::jsonb) AS item
-                WHERE store_id=$1 AND status = 'delivered'
+                WHERE store_id=$1 AND (
+                    (order_type = 'dine_in' AND status IN ('confirmed', 'processing', 'delivered'))
+                    OR
+                    (order_type = 'delivery' AND status = 'delivered')
+                    OR
+                    (order_type IS NULL AND status = 'delivered')
+                )
                 GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId') s
                 ON inv.store_id=s.store_id AND inv.product_id=s.product_id AND inv.variation_id=s.variation_id AND inv.size_id=s.size_id
             LEFT JOIN (SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
