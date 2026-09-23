@@ -39,7 +39,7 @@ const CustomerOrderController = {
                 `INSERT INTO orders
                     (order_id, store_id, customer_id, customer_name, customer_phone, items, delivery_address,
                      subtotal, delivery_charge, tax_amount, total_amount, payment_method, customer_upi_id, status, payment_status, order_type)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', 'pending', $14)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $14 = 'dine_in' THEN 'delivered' ELSE 'pending' END, 'pending', $14)
                  RETURNING *`,
                 [
                     orderId, storeId, customerId, customer.name || null, customer.phone || phone,
