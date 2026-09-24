@@ -220,4 +220,75 @@ const syncStore = async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
 
-module.exports = { getInventory, updateStock, downloadCSV, uploadCSV, syncStore, syncInventory };
+module.exports = { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory };
+
+const downloadTallyCSV = async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        await syncInventory(storeId);
+
+        const storeResult = await pool.query('SELECT config FROM stores WHERE id = $1', [storeId]);
+        const config = storeResult.rows[0]?.config;
+        const hsnCode = config?.cart?.hsnCode || '';
+        const gstRate = config?.cart?.gstRate || 0;
+        const tallyStockGroup = config?.cart?.tallyStockGroup || 'Trading Goods';
+        const categoryOrder = (config?.products?.categories || []).map((c, idx) => ({ name: c.name?.toLowerCase(), idx }));
+
+        const result = await pool.query(`
+            SELECT inv.*, COALESCE(s.total_sold,0) AS total_sold, COALESCE(r.total_returned,0) AS total_returned,
+                (inv.stock_quantity - COALESCE(s.total_sold,0) + COALESCE(r.total_returned,0)) AS current_stock
+            FROM inventory inv
+            LEFT JOIN (SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
+                item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_sold
+                FROM orders o, jsonb_array_elements(o.items::jsonb) AS item
+                WHERE o.store_id=$1 AND (
+                    (o.order_type = 'dine_in' AND o.status IN ('confirmed','processing','delivered'))
+                    OR (o.order_type = 'delivery' AND o.status = 'delivered')
+                    OR (o.order_type IS NULL AND o.status = 'delivered')
+                )
+                GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId') s
+                ON inv.store_id=s.store_id AND inv.product_id=s.product_id AND inv.variation_id=s.variation_id AND inv.size_id=s.size_id
+            LEFT JOIN (SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
+                item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_returned
+                FROM orders o, jsonb_array_elements(o.items::jsonb) AS item
+                WHERE o.store_id=$1 AND o.status='returned'
+                GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId') r
+                ON inv.store_id=r.store_id AND inv.product_id=r.product_id AND inv.variation_id=r.variation_id AND inv.size_id=r.size_id
+            WHERE inv.store_id=$1 AND inv.is_archived=FALSE
+        `, [storeId]);
+
+        const sortedRows = result.rows.sort((a, b) => {
+            const aIdx = categoryOrder.find(c => c.name === (a.category_name||'').toLowerCase())?.idx ?? 999;
+            const bIdx = categoryOrder.find(c => c.name === (b.category_name||'').toLowerCase())?.idx ?? 999;
+            if (aIdx !== bIdx) return aIdx - bIdx;
+            return (a.product_name||'').localeCompare(b.product_name||'');
+        });
+
+        const headers = ['Item Name','Stock Group','HSN/SAC Code','Unit of Measure','GST Rate (%)','Opening Qty','Opening Rate (Rs.)','Opening Value (Rs.)'];
+
+        const rows = sortedRows.map(r => {
+            const sizeLabel = r.size_label || '';
+            const sizeMatch = sizeLabel.match(/^([\d.]+)\s*(.*)$/);
+            const unit = sizeMatch ? sizeMatch[2].trim() : 'Nos';
+            const itemName = [r.product_name, r.variation_name, sizeLabel].filter(Boolean).join(' - ');
+            const openingQty = parseInt(r.current_stock || 0);
+            const rate = parseFloat(r.price || 0);
+            const openingValue = (openingQty * rate).toFixed(2);
+            return [
+                `"${itemName}"`,
+                `"${tallyStockGroup}"`,
+                hsnCode || '',
+                unit || 'Nos',
+                gstRate,
+                openingQty,
+                rate.toFixed(2),
+                openingValue
+            ];
+        });
+
+        const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="tally-inventory-${storeId}.csv"`);
+        res.send(csv);
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+};
