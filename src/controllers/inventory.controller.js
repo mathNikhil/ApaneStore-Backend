@@ -292,3 +292,5 @@ const downloadTallyCSV = async (req, res) => {
         res.send(csv);
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
+
+module.exports = { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory };
