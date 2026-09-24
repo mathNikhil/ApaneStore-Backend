@@ -310,3 +310,33 @@ router.get('/stores/:id/storage', async (req, res) => {
         full: pct >= 100
     }});
 });
+
+// Billing settings
+router.get('/billing-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const result = await pool.query(
+            "SELECT key, value FROM platform_settings WHERE key LIKE 'billing_%'"
+        );
+        const settings = {};
+        result.rows.forEach(r => { settings[r.key.replace('billing_', '')] = r.value; });
+        res.json({ success: true, data: settings });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.post('/billing-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const fields = ['company_name','gstin','pan','address','state','hsn_code','gst_rate','bank_name','bank_account','bank_ifsc','bank_branch'];
+        for (const field of fields) {
+            if (req.body[field] !== undefined) {
+                await pool.query(
+                    `INSERT INTO platform_settings (key, value) VALUES ($1, $2)
+                     ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()`,
+                    [`billing_${field}`, req.body[field]]
+                );
+            }
+        }
+        res.json({ success: true, message: 'Billing settings saved' });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
