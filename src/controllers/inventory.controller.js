@@ -220,8 +220,6 @@ const syncStore = async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
 
-module.exports = { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory };
-
 const downloadTallyCSV = async (req, res) => {
     try {
         const { storeId } = req.params;
