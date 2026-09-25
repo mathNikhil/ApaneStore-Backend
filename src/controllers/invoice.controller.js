@@ -2,18 +2,32 @@ const pool = require('../config/database');
 const PDFDocument = require('pdfkit');
 const logger = require('../config/logger');
 
-const SELLER = {
-  name: 'AapnaEstore',
-  entity: 'Nikhil Mathur HUF',
-  address: 'C-143, Maharana Pratap Enclave,\nPitam Pura, New Delhi - 110034',
-  state: 'Delhi',
-  stateCode: '07',
-  gstin: 'Applied For',
-  udyam: 'UDYAM-DL-06-0221356',
-  email: 'aapnaestore@gmail.com',
-  phone: '+91 9818410640',
-  sac: '998314',
+// SELLER loaded dynamically from billing_settings
+const getSeller = async () => {
+  const result = await pool.query("SELECT key, value FROM platform_settings WHERE key LIKE 'billing_%'");
+  const s = {};
+  result.rows.forEach(r => { s[r.key.replace('billing_', '')] = r.value; });
+  return {
+    name: s.company_name || 'AapnaEstore',
+    entity: s.company_name || 'Nikhil Mathur HUF',
+    address: s.address || 'C-143, Maharana Pratap Enclave,\nPitam Pura, New Delhi - 110034',
+    state: s.state || 'Delhi',
+    stateCode: s.state === 'Delhi' ? '07' : '',
+    gstin: s.gstin || 'Applied For',
+    pan: s.pan || '',
+    udyam: 'UDYAM-DL-06-0221356',
+    email: 'aapnaestore@gmail.com',
+    phone: '+91 9818410640',
+    sac: s.hsn_code || '998314',
+    gstRate: parseFloat(s.gst_rate || 18),
+    bankName: s.bank_name || '',
+    bankAccount: s.bank_account || '',
+    bankIFSC: s.bank_ifsc || '',
+    bankBranch: s.bank_branch || '',
+  };
 };
+
+const AAPNA_LOGO = '/home/ubuntu/apps/ApaneStore-Frontend/src/assets/images/Apnaestore-Logo.png';
 
 const PLAN_LABELS = {
   subdomain_apnaestore: 'Free Subdomain + AapnaEstore Hosting',
@@ -59,7 +73,7 @@ const drawLine = (doc, y, color = '#e0e3e6') => {
 };
 
 // Generate PDF buffer
-const generateInvoicePDF = (invoice, subscription, store, tenant) => {
+const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 40, size: 'A4' });
@@ -78,6 +92,13 @@ const generateInvoicePDF = (invoice, subscription, store, tenant) => {
 
       // ── HEADER ──────────────────────────────────────────
       doc.rect(40, 40, 515, 80).fill('#006d2f');
+      // Add logo to header
+      try {
+        const fs = require('fs');
+        if (fs.existsSync(AAPNA_LOGO)) {
+          doc.image(AAPNA_LOGO, 45, 48, { height: 60, fit: [60, 60] });
+        }
+      } catch(e) {}
       doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold')
         .text('TAX INVOICE', 50, 55);
       doc.fontSize(10).font('Helvetica')
@@ -95,17 +116,18 @@ const generateInvoicePDF = (invoice, subscription, store, tenant) => {
       drawLine(doc, 153);
 
       doc.font('Helvetica-Bold').fontSize(10)
-        .text(SELLER.name, 40, 158)
+        .text(seller.name, 40, 158)
         .text(invoice.tenant_business_name || tenant.company_name || 'Business', 300, 158);
 
       doc.font('Helvetica').fontSize(8).fillColor('#556067')
-        .text(`Operated by: ${SELLER.entity}`, 40, 172)
-        .text(SELLER.address, 40, 184, { width: 230 })
-        .text(`State: ${SELLER.state} (${SELLER.stateCode})`, 40, 210)
-        .text(`GSTIN: ${SELLER.gstin}`, 40, 222)
-        .text(`Udyam: ${SELLER.udyam}`, 40, 234)
-        .text(`Email: ${SELLER.email}`, 40, 246)
-        .text(`Phone: ${SELLER.phone}`, 40, 258);
+        .text(`Operated by: ${seller.entity}`, 40, 172)
+        .text(seller.address, 40, 184, { width: 230 })
+        .text(`State: ${seller.state} (${seller.stateCode})`, 40, 210)
+        .text(`GSTIN: ${seller.gstin}`, 40, 222)
+        .text(`PAN: ${seller.pan || 'N/A'}`, 40, 234)
+        .text(`Udyam: ${seller.udyam}`, 40, 246)
+        .text(`Email: ${seller.email}`, 40, 258)
+        .text(`Phone: ${seller.phone}`, 40, 270);
 
       doc.fontSize(8).fillColor('#556067')
         .text(`Phone: ${tenant.phone}`, 300, 172)
@@ -132,7 +154,7 @@ const generateInvoicePDF = (invoice, subscription, store, tenant) => {
       const validUntil = subscription.valid_until ? new Date(subscription.valid_until).toLocaleDateString('en-IN') : 'N/A';
 
       doc.font('Helvetica').fontSize(8).fillColor('#556067')
-        .text(SELLER.sac, 45, 308)
+        .text(seller.sac, 45, 308)
         .text(planLabel, 85, 308, { width: 215 })
         .text(storeUrl, 310, 308, { width: 85 })
         .text(`${validFrom} to\n${validUntil}`, 400, 308, { width: 75 })
@@ -184,7 +206,16 @@ const generateInvoicePDF = (invoice, subscription, store, tenant) => {
         .text(`This is a computer generated invoice and does not require a physical signature.`, 40, totalY + 56);
 
       // ── FOOTER ───────────────────────────────────────────
-      const footerY = 740;
+      // Bank details
+      if (seller.bankName) {
+        const bankY = 690;
+        drawLine(doc, bankY);
+        doc.fillColor('#191c1e').fontSize(9).font('Helvetica-Bold').text('BANK DETAILS', 40, bankY + 6);
+        doc.font('Helvetica').fontSize(8).fillColor('#556067')
+          .text(`Bank: ${seller.bankName}  |  Account: ${seller.bankAccount}  |  IFSC: ${seller.bankIFSC}  |  Branch: ${seller.bankBranch}`, 40, bankY + 18, { width: 515 });
+      }
+
+      const footerY = 720;
       drawLine(doc, footerY);
       doc.rect(40, footerY + 1, 515, 55).fill('#f2f4f7');
       doc.fillColor('#556067').font('Helvetica').fontSize(7)
@@ -340,7 +371,8 @@ const InvoiceController = {
         email: row.email,
       };
 
-      const pdfBuffer = await generateInvoicePDF(invoice, subscription, store, tenant);
+      const seller = await getSeller();
+      const pdfBuffer = await generateInvoicePDF(invoice, subscription, store, tenant, seller);
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${row.invoice_number}.pdf"`);
