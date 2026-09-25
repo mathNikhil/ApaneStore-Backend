@@ -92,21 +92,24 @@ const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
 
       // ── HEADER ──────────────────────────────────────────
       doc.rect(40, 40, 515, 80).fill('#006d2f');
-      // Add logo to header
+      // Div 1 — Logo left
       try {
         const fs = require('fs');
         if (fs.existsSync(AAPNA_LOGO)) {
-          doc.image(AAPNA_LOGO, 45, 48, { height: 60, fit: [60, 60] });
+          doc.image(AAPNA_LOGO, 45, 48, { height: 50, fit: [50, 50] });
         }
       } catch(e) {}
-      doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold')
-        .text('TAX INVOICE', 120, 48);
-      doc.fontSize(10).font('Helvetica')
-        .text('AapnaEstore Platform Subscription', 120, 76);
-      doc.fontSize(9)
-        .text(`Invoice No: ${invoice.invoice_number}`, 350, 55, { align: 'right', width: 195 })
-        .text(`Date: ${new Date(invoice.invoice_generated_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, 350, 70, { align: 'right', width: 195 })
-        .text(`Status: PAID`, 350, 85, { align: 'right', width: 195 });
+      // Div 2 — Title center
+      doc.fillColor('#ffffff').fontSize(20).font('Helvetica-Bold')
+        .text('TAX INVOICE', 150, 48, { width: 255, align: 'center', lineBreak: false });
+      doc.fontSize(9).font('Helvetica')
+        .text('AapnaEstore Platform Subscription', 150, 72, { width: 255, align: 'center', lineBreak: false });
+      // Div 3 — Invoice details right
+      doc.fontSize(8).font('Helvetica')
+        .text(`Invoice No: ${invoice.invoice_number}`, 405, 48, { width: 145, align: 'right', lineBreak: false })
+        .text(`Date: ${new Date(invoice.invoice_generated_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, 405, 62, { width: 145, align: 'right', lineBreak: false })
+        .text('Status: PAID', 405, 76, { width: 145, align: 'right', lineBreak: false });
+
 
       // ── SELLER & BUYER ───────────────────────────────────
       doc.fillColor('#191c1e').fontSize(9).font('Helvetica-Bold')
