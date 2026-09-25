@@ -18,7 +18,7 @@ const getSeller = async () => {
     udyam: 'UDYAM-DL-06-0221356',
     email: 'aapnaestore@gmail.com',
     phone: '+91 9818410640',
-    sac: s.hsn_code || '998314',
+    sac: s.hsn_code || '997331',
     gstRate: parseFloat(s.gst_rate || 18),
     bankName: s.bank_name || '',
     bankAccount: s.bank_account || '',
@@ -82,7 +82,9 @@ const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
       doc.on('end', () => resolve(Buffer.concat(buffers)));
       doc.on('error', reject);
 
-      const isDelhi = (invoice.tenant_state || '').toLowerCase().includes('delhi');
+      const sellerState = (seller.state || 'Delhi').toLowerCase().trim();
+      const buyerState = (invoice.tenant_state || '').toLowerCase().trim();
+      const isDelhi = buyerState && sellerState === buyerState;
       const baseAmount = parseFloat(subscription.base_amount || 0);
       const totalAmount = parseFloat(subscription.total_amount || 0);
       const taxAmount = parseFloat(subscription.tax_amount || (totalAmount - baseAmount).toFixed(2));
@@ -174,12 +176,12 @@ const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
         .text(`₹${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 8, { width: 70, align: 'right' });
 
       if (isDelhi) {
-        doc.text(`CGST @ 9% (Delhi - Same State)`, 315, taxY + 24)
+        doc.text(`CGST @ ${cgst > 0 ? 9 : 0}%`, 315, taxY + 24)
           .text(`₹${cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 24, { width: 70, align: 'right' });
-        doc.text(`SGST @ 9% (Delhi - Same State)`, 315, taxY + 40)
+        doc.text(`SGST @ ${sgst > 0 ? 9 : 0}%`, 315, taxY + 40)
           .text(`₹${sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 40, { width: 70, align: 'right' });
       } else {
-        doc.text(`IGST @ 18% (Inter-State)`, 315, taxY + 24)
+        doc.text(`IGST @ 18%`, 315, taxY + 24)
           .text(`₹${igst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 24, { width: 70, align: 'right' });
       }
 
