@@ -259,7 +259,28 @@ const InvoiceController = {
     try {
       const { subscriptionId } = req.params;
       const tenantId = req.tenantId;
-      const { tenant_gstin, tenant_address, tenant_state, tenant_business_name } = req.body;
+      const tenant_gstin = req.headers['x-tenant-gstin'] || req.body.tenant_gstin;
+    const tenant_address = req.headers['x-tenant-address'] || req.body.tenant_address;
+    const tenant_state = req.headers['x-tenant-state'] || req.body.tenant_state;
+    const tenant_business_name = req.headers['x-tenant-business'] || req.body.tenant_business_name;
+
+    // Save tenant details if provided
+    if (tenant_business_name || tenant_state || tenant_gstin || tenant_address) {
+      await pool.query(
+        `UPDATE store_subscriptions SET
+          tenant_gstin = COALESCE(NULLIF($2,''), tenant_gstin),
+          tenant_address = COALESCE(NULLIF($3,''), tenant_address),
+          tenant_state = COALESCE(NULLIF($4,''), tenant_state),
+          tenant_business_name = COALESCE(NULLIF($5,''), tenant_business_name)
+         WHERE id = $1`,
+        [subscriptionId, tenant_gstin||'', tenant_address||'', tenant_state||'', tenant_business_name||'']
+      );
+      // Refresh row with updated values
+      if (tenant_gstin) row.tenant_gstin = tenant_gstin;
+      if (tenant_address) row.tenant_address = tenant_address;
+      if (tenant_state) row.tenant_state = tenant_state;
+      if (tenant_business_name) row.tenant_business_name = tenant_business_name;
+    }
 
       // Verify subscription belongs to this tenant
       const subResult = await pool.query(
@@ -344,10 +365,10 @@ const InvoiceController = {
       const invoice = {
         invoice_number: row.invoice_number,
         invoice_generated_at: row.invoice_generated_at,
-        tenant_gstin: row.tenant_gstin,
-        tenant_address: row.tenant_address,
-        tenant_state: row.tenant_state,
-        tenant_business_name: row.tenant_business_name,
+        tenant_gstin: tenant_gstin || row.tenant_gstin,
+        tenant_address: tenant_address || row.tenant_address,
+        tenant_state: tenant_state || row.tenant_state,
+        tenant_business_name: tenant_business_name || row.tenant_business_name,
       };
 
       const subscription = {
