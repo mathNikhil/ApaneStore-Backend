@@ -100,9 +100,9 @@ const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
         }
       } catch(e) {}
       doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold')
-        .text('TAX INVOICE', 50, 55);
+        .text('TAX INVOICE', 120, 48);
       doc.fontSize(10).font('Helvetica')
-        .text('AapnaEstore Platform Subscription', 50, 82);
+        .text('AapnaEstore Platform Subscription', 120, 76);
       doc.fontSize(9)
         .text(`Invoice No: ${invoice.invoice_number}`, 350, 55, { align: 'right', width: 195 })
         .text(`Date: ${new Date(invoice.invoice_generated_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, 350, 70, { align: 'right', width: 195 })
