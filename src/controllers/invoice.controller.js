@@ -277,11 +277,7 @@ const InvoiceController = {
          WHERE id = $1`,
         [subscriptionId, tenant_gstin||'', tenant_address||'', tenant_state||'', tenant_business_name||'']
       );
-      // Refresh row with updated values
-      if (tenant_gstin) row.tenant_gstin = tenant_gstin;
-      if (tenant_address) row.tenant_address = tenant_address;
-      if (tenant_state) row.tenant_state = tenant_state;
-      if (tenant_business_name) row.tenant_business_name = tenant_business_name;
+      // Values saved to DB — row will be fetched fresh below
     }
 
       // Verify subscription belongs to this tenant
@@ -333,7 +329,9 @@ const InvoiceController = {
 
       const result = await pool.query(
         `SELECT ss.*, s.store_name, s.subdomain, s.custom_domain, s.tenant_id,
-                t.company_name, t.phone, t.email
+                t.company_name, t.phone, t.email,
+                t.business_name as t_business_name, t.gst_number as t_gst_number,
+                t.state as t_state, t.address as t_address, t.full_name as t_full_name
          FROM store_subscriptions ss
          JOIN stores s ON s.id = ss.store_id
          JOIN tenants t ON t.id = s.tenant_id
@@ -364,13 +362,19 @@ const InvoiceController = {
         row.invoice_generated_at = new Date();
       }
 
+      // Headers (admin override) → subscription saved fields → tenant profile fallback
+      const h_gstin = req.headers['x-tenant-gstin'];
+      const h_address = req.headers['x-tenant-address'];
+      const h_state = req.headers['x-tenant-state'];
+      const h_business = req.headers['x-tenant-business'];
+
       const invoice = {
         invoice_number: row.invoice_number,
         invoice_generated_at: row.invoice_generated_at,
-        tenant_gstin: tenant_gstin || row.tenant_gstin,
-        tenant_address: tenant_address || row.tenant_address,
-        tenant_state: tenant_state || row.tenant_state,
-        tenant_business_name: tenant_business_name || row.tenant_business_name,
+        tenant_gstin: h_gstin || row.tenant_gstin || row.t_gst_number || '',
+        tenant_address: h_address || row.tenant_address || row.t_address || '',
+        tenant_state: h_state || row.tenant_state || row.t_state || '',
+        tenant_business_name: h_business || row.tenant_business_name || row.t_business_name || row.company_name || '',
       };
 
       const subscription = {

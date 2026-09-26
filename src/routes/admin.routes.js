@@ -109,8 +109,14 @@ router.get('/revenue', authenticateAdmin, async (req, res) => {
                 ss.base_amount, ss.tax_amount, ss.total_amount,
                 ss.payment_method, ss.paid_at, ss.valid_until,
                 ss.invoice_number,
+                ss.tenant_business_name, ss.tenant_gstin, ss.tenant_state, ss.tenant_address,
                 s.store_name, s.subdomain, s.custom_domain, s.status as store_status,
-                t.company_name as tenant_name, t.phone as tenant_phone, t.email as tenant_email
+                t.company_name as tenant_name, t.phone as tenant_phone, t.email as tenant_email,
+                t.business_name as tenant_business_name_profile,
+                t.gst_number as tenant_gst_number_profile,
+                t.state as tenant_state_profile,
+                t.address as tenant_address_profile,
+                t.full_name as tenant_full_name
             FROM store_subscriptions ss
             JOIN stores s ON s.id = ss.store_id
             JOIN tenants t ON t.id = s.tenant_id

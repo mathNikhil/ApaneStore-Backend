@@ -34,6 +34,7 @@ const authenticateAdmin = async (req, res, next) => {
         
         req.admin = result.rows[0];
         req.adminId = decoded.adminId || decoded.tenantId;
+        req.isAdmin = true;
         next();
     } catch (error) {
         if (error.name === 'JsonWebTokenError') {

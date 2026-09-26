@@ -9,7 +9,8 @@ class TenantController {
     static async getById(req, res) {
         try {
             const result = await pool.query(
-                `SELECT id, tenant_id, company_name, email, phone, business_type, 
+                `SELECT id, tenant_id, company_name, business_name, full_name, email, phone, business_type, 
+                        gst_number, state, address, city, pincode,
                         subscription_tier, is_verified, store_count, created_at 
                  FROM tenants WHERE id = $1`,
                 [req.tenantId]
@@ -43,14 +44,14 @@ class TenantController {
     static async update(req, res) {
         try {
             // ✅ Use snake_case to match frontend and database
-            const { company_name, business_name, email, phone, business_type } = req.body;
+            const { company_name, business_name, email, phone, business_type, gst_number, state, address, full_name } = req.body;
             const effectiveName = business_name || company_name;
 
             // ✅ Check if there's anything to update
-            if (!company_name && !business_name && !email && !phone && !business_type) {
+            if (!company_name && !business_name && !email && !phone && !business_type && gst_number === undefined && !state && !address && !full_name) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Nothing to update — provide business_name, email, business_type, and/or phone'
+                    error: 'Nothing to update'
                 });
             }
 
@@ -78,6 +79,22 @@ class TenantController {
             if (business_type !== undefined && business_type !== '') {
                 updates.push(`business_type = $${paramIndex++}`);
                 values.push(business_type);
+            }
+            if (full_name !== undefined && full_name !== '') {
+                updates.push(`full_name = $${paramIndex++}`);
+                values.push(full_name);
+            }
+            if (gst_number !== undefined) {
+                updates.push(`gst_number = $${paramIndex++}`);
+                values.push(gst_number);
+            }
+            if (state !== undefined && state !== '') {
+                updates.push(`state = $${paramIndex++}`);
+                values.push(state);
+            }
+            if (address !== undefined && address !== '') {
+                updates.push(`address = $${paramIndex++}`);
+                values.push(address);
             }
 
             // Always update updated_at
