@@ -84,7 +84,7 @@ router.put('/:id', async (req, res) => {
       is_active, is_recommended, sort_order,
       daily_msg_limit, max_scheduled,
       image_retain_days, gap_seconds_min,
-      allow_waba,
+      allow_waba, gst_rate, validity_days,
     } = req.body;
 
     // If this plan becoming recommended, un-recommend others first
@@ -114,13 +114,15 @@ router.put('/:id', async (req, res) => {
          image_retain_days  = COALESCE($10, image_retain_days),
          gap_seconds_min    = COALESCE($11, gap_seconds_min),
          allow_waba         = COALESCE($12, allow_waba),
+         gst_rate           = COALESCE($13, gst_rate),
+         validity_days      = COALESCE($14, validity_days),
          updated_at         = NOW()
-       WHERE id = $13
+       WHERE id = $15
        RETURNING *`,
       [name, description, price_monthly, price_yearly,
        is_active, is_recommended, sort_order,
        daily_msg_limit, max_scheduled, image_retain_days, gap_seconds_min,
-       allow_waba, req.params.id]
+       allow_waba, gst_rate ?? null, validity_days ?? null, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Plan not found' });
     res.json(rows[0]);
