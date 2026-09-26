@@ -16,7 +16,8 @@ router.get('/', async (req, res) => {
     const { rows } = await db.query(
       `SELECT id, name, description, price_monthly, price_yearly,
               is_recommended, sort_order,
-              daily_msg_limit, max_scheduled, image_retain_days, allow_waba
+              daily_msg_limit, max_scheduled, image_retain_days, allow_waba,
+              gst_rate, validity_days
        FROM addon_plans
        WHERE addon_type=$1 AND is_active=true
        ORDER BY sort_order ASC`,
