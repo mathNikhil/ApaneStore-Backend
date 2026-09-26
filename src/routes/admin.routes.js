@@ -272,6 +272,96 @@ router.get('/invoices/bulk-download', authenticateAdmin, async (req, res) => {
 });
 
 // All WhatsApp Market invoices for admin revenue page
+
+router.get('/market/invoices/:orderId/download', authenticateAdmin, async (req, res) => {
+  try {
+    const pool = require('../config/database');
+    const { generateInvoicePDF } = require('../controllers/invoice.controller');
+    const { orderId } = req.params;
+
+    const { rows } = await pool.query(`
+      SELECT cpo.id, cpo.order_id, cpo.amount, cpo.status, cpo.created_at,
+             (cpo.order_data->>'base_amount')::numeric as base_amount,
+             (cpo.order_data->>'gst_rate')::numeric as gst_rate,
+             (cpo.order_data->>'total_amount')::numeric as total_amount,
+             t.company_name as tenant_name, t.email as tenant_email,
+             t.phone as tenant_phone, t.business_name, t.full_name,
+             t.gst_number, t.state as tenant_state, t.address as tenant_address,
+             p.name as plan_name, p.description as plan_description,
+             p.max_scheduled, p.image_retain_days, p.daily_msg_limit, p.validity_days
+      FROM cashfree_pending_orders cpo
+      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::int
+      LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
+      WHERE cpo.order_id = $1
+    `, [orderId]);
+
+    if (rows.length === 0) return res.status(404).json({ success: false, error: 'Order not found' });
+    const order = rows[0];
+
+    const settingsRes = await pool.query("SELECT key, value FROM platform_settings WHERE key LIKE 'billing_%'");
+    const s = {};
+    settingsRes.rows.forEach(r => { s[r.key.replace('billing_', '')] = r.value; });
+
+    const yr = new Date(order.created_at).getFullYear();
+    const invoiceNo = `WA-INV-${yr}-${String(order.id).padStart(4,'0')}`;
+    const gstRate = parseFloat(order.gst_rate || 18);
+    const totalAmount = parseFloat(order.amount || 0);
+    const baseAmount = parseFloat(order.base_amount || (totalAmount / (1 + gstRate/100)).toFixed(2));
+    const taxAmount = parseFloat((totalAmount - baseAmount).toFixed(2));
+
+    const invoice = {
+      invoice_number: invoiceNo,
+      invoice_generated_at: order.created_at,
+      tenant_gstin: order.gst_number || '',
+      tenant_address: order.tenant_address || '',
+      tenant_state: order.tenant_state || '',
+      tenant_business_name: order.business_name || order.tenant_name || '',
+    };
+
+    // Calculate valid_until from paid_at + validity_days
+    const paidAt = new Date(order.created_at);
+    const validUntil = new Date(paidAt);
+    validUntil.setDate(validUntil.getDate() + (order.validity_days || 30));
+
+    const store = { name: order.tenant_name || 'WhatsApp Market', subdomain: '', custom_domain: '' };
+
+    const subscription = {
+      plan_key: 'wa_market',
+      plan_name: `WhatsApp Market — ${order.plan_name || 'Subscription'} | ${order.validity_days || 30} Days | ${order.max_scheduled || 0} Schedules | ${order.image_retain_days || 0} Days Image Storage`,
+      billing_cycle: 'monthly',
+      base_amount: baseAmount,
+      tax_amount: taxAmount,
+      total_amount: totalAmount,
+      payment_method: 'Online',
+      paid_at: order.created_at,
+      valid_until: validUntil.toISOString(),
+    };
+    const tenant = { company_name: order.tenant_name || '', phone: order.tenant_phone || '', email: order.tenant_email || '' };
+    const seller = {
+      name: s.company_name || 'AapnaEstore Pvt. Ltd.',
+      entity: s.company_name || 'AapnaEstore Pvt. Ltd.',
+      address: s.address || '',
+      state: s.state || 'Delhi',
+      stateCode: '07',
+      gstin: s.gstin || 'Applied For',
+      pan: s.pan || '',
+      udyam: 'UDYAM-DL-06-0221356',
+      email: 'aapnaestore@gmail.com',
+      phone: '+91 9818410640',
+      hsn: s.hsn_code || '998314',
+      gst_rate: parseFloat(s.gst_rate || 0),
+    };
+
+    const pdfBuffer = await generateInvoicePDF(invoice, subscription, store, tenant, seller);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${invoiceNo}.pdf"`);
+    res.send(pdfBuffer);
+  } catch(err) {
+    console.error('WA invoice download error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/market/all-invoices', authenticateAdmin, async (req, res) => {
   try {
     const pool = require('../config/database');
