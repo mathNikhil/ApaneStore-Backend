@@ -530,7 +530,8 @@ router.get('/plans', async (req, res) => {
     const { rows } = await db.query(
       `SELECT id, name, description, price_monthly, price_yearly,
               daily_msg_limit, max_scheduled, image_retain_days,
-              gap_seconds_min, is_recommended, is_active
+              gap_seconds_min, is_recommended, is_active,
+              gst_rate, validity_days
        FROM addon_plans
        WHERE is_active = true AND addon_type = 'whatsapp_market'
        ORDER BY sort_order ASC, price_monthly ASC`
@@ -570,7 +571,7 @@ router.post('/subscribe', async (req, res) => {
     const orderId = `WA_${tenantId}_${plan_id}_${Date.now()}`;
 
     const baseRupees = plan.price_monthly / 100; // stored in paise
-    const gstRate = parseFloat(plan.gst_rate || 18);
+    const gstRate = parseFloat(plan.gst_rate != null ? plan.gst_rate : 18);
     const gstRupees = parseFloat((baseRupees * gstRate / 100).toFixed(2));
     const totalRupees = parseFloat((baseRupees + gstRupees).toFixed(2));
 
