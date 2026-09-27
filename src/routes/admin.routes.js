@@ -81,16 +81,140 @@ router.get('/terms-acceptances', authenticateAdmin, async (req, res) => {
     const pool = require('../config/database');
     try {
         const result = await pool.query(
-            `SELECT ta.*, t.company_name AS tenant_name, t.phone AS tenant_phone,
-                    s.store_name, s.subdomain
+            `SELECT ta.*, t.company_name AS tenant_name, t.phone AS tenant_phone, t.email AS tenant_email,
+                    s.store_name, s.subdomain,
+                    ss.tenant_business_name, ss.tenant_gstin, ss.tenant_address, ss.tenant_state
              FROM terms_acceptances ta
              LEFT JOIN tenants t ON t.id = ta.tenant_id
              LEFT JOIN stores s ON s.id = ta.store_id
+             LEFT JOIN store_subscriptions ss ON ss.store_id = ta.store_id
              ORDER BY ta.accepted_at DESC`
         );
         res.json({ success: true, data: result.rows });
     } catch (error) {
         console.error('❌ Get terms acceptances error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// Download Terms Agreement PDF
+router.get('/terms-acceptances/:id/download', authenticateAdmin, async (req, res) => {
+    const pool = require('../config/database');
+    const PDFDocument = require('pdfkit');
+    const { TERMS_VERSION, TERMS_TEXT } = require('../config/terms');
+    try {
+        const { id } = req.params;
+        const result = await pool.query(
+            `SELECT ta.*, t.company_name AS tenant_name, t.phone AS tenant_phone, t.email AS tenant_email,
+                    s.store_name, s.subdomain,
+                    ss.tenant_business_name, ss.tenant_gstin, ss.tenant_address, ss.tenant_state
+             FROM terms_acceptances ta
+             LEFT JOIN tenants t ON t.id = ta.tenant_id
+             LEFT JOIN stores s ON s.id = ta.store_id
+             LEFT JOIN store_subscriptions ss ON ss.store_id = ta.store_id
+             WHERE ta.id = $1`,
+            [id]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Record not found' });
+        const r = result.rows[0];
+
+        // Get billing settings for AapnaEstore details
+        const billing = await pool.query("SELECT key, value FROM platform_settings WHERE key LIKE 'billing_%'");
+        const bs = {};
+        billing.rows.forEach(row => { bs[row.key.replace('billing_', '')] = row.value; });
+
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const buffers = [];
+        doc.on('data', chunk => buffers.push(chunk));
+        doc.on('end', () => {
+            const pdf = Buffer.concat(buffers);
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="terms-agreement-${r.subdomain}.pdf"`);
+            res.send(pdf);
+        });
+
+        // Header
+        doc.rect(50, 40, 495, 70).fill('#006d2f');
+        doc.fillColor('#ffffff').fontSize(20).font('Helvetica-Bold')
+           .text('TERMS & CONDITIONS — SIGNED AGREEMENT', 60, 55, { width: 475, align: 'center' });
+        doc.fontSize(10).font('Helvetica')
+           .text('AapnaEstore Platform', 60, 80, { width: 475, align: 'center' });
+
+        doc.moveDown(4);
+
+        // Acceptance Details Box
+        doc.fillColor('#191c1e').fontSize(12).font('Helvetica-Bold').text('ACCEPTANCE DETAILS', 50, 130);
+        doc.moveTo(50, 145).lineTo(545, 145).strokeColor('#e0e3e6').lineWidth(0.5).stroke();
+
+        const detailY = 155;
+        doc.fontSize(9).font('Helvetica').fillColor('#556067');
+
+        const details = [
+            ['Tenant Name', r.tenant_name || '—'],
+            ['Business Name', r.tenant_business_name || r.store_name || '—'],
+            ['Phone', r.tenant_phone || '—'],
+            ['Email', r.tenant_email || '—'],
+            ['Store', `${r.store_name} (${r.subdomain}.aapnaestore.com)`],
+            ['GSTIN', r.tenant_gstin || 'Not Provided'],
+            ['State', r.tenant_state || '—'],
+            ['Address', r.tenant_address || '—'],
+            ['Terms Version', r.terms_version],
+            ['Accepted At', new Date(r.accepted_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' IST'],
+            ['IP Address', r.ip_address || '—'],
+        ];
+
+        let y = detailY;
+        details.forEach(([label, value]) => {
+            doc.font('Helvetica-Bold').fillColor('#191c1e').text(label + ':', 50, y, { width: 140 });
+            doc.font('Helvetica').fillColor('#556067').text(String(value), 200, y, { width: 345 });
+            y += 18;
+        });
+
+        y += 10;
+        doc.moveTo(50, y).lineTo(545, y).strokeColor('#e0e3e6').lineWidth(0.5).stroke();
+        y += 15;
+
+        // Terms Text
+        doc.fillColor('#191c1e').fontSize(12).font('Helvetica-Bold').text('TERMS & CONDITIONS TEXT', 50, y);
+        y += 20;
+        doc.moveTo(50, y).lineTo(545, y).strokeColor('#e0e3e6').lineWidth(0.5).stroke();
+        y += 10;
+
+        doc.fontSize(8).font('Helvetica').fillColor('#333333')
+           .text(TERMS_TEXT, 50, y, { width: 495, align: 'justify', lineGap: 2 });
+
+        // Signature block
+        doc.addPage();
+        doc.fillColor('#191c1e').fontSize(12).font('Helvetica-Bold').text('DIGITAL ACCEPTANCE DECLARATION', 50, 50);
+        doc.moveTo(50, 68).lineTo(545, 68).strokeColor('#e0e3e6').lineWidth(0.5).stroke();
+
+        doc.fontSize(10).font('Helvetica').fillColor('#333333').text(
+            `I/We, ${r.tenant_business_name || r.tenant_name || 'the undersigned'}, hereby confirm that on ${new Date(r.accepted_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })} IST, we accessed the AapnaEstore platform from IP address ${r.ip_address || 'recorded'}, read the Terms & Conditions (Version: ${r.terms_version}) in full, and by checking the acceptance checkbox and completing payment, agreed to be bound by the said terms with immediate effect.`,
+            50, 80, { width: 495, align: 'justify', lineGap: 3 }
+        );
+
+        // Signature lines
+        const sigY = 200;
+        doc.moveTo(50, sigY).lineTo(250, sigY).strokeColor('#191c1e').lineWidth(0.5).stroke();
+        doc.fontSize(9).font('Helvetica').fillColor('#556067')
+           .text('Authorized Signatory', 50, sigY + 5)
+           .text(r.tenant_business_name || r.tenant_name || '—', 50, sigY + 18)
+           .text(r.tenant_phone || '', 50, sigY + 31);
+
+        doc.moveTo(300, sigY).lineTo(545, sigY).strokeColor('#191c1e').lineWidth(0.5).stroke();
+        doc.text('For AapnaEstore', 300, sigY + 5)
+           .text(bs.company_name || 'AapnaEstore', 300, sigY + 18)
+           .text(bs.gstin ? `GSTIN: ${bs.gstin}` : '', 300, sigY + 31);
+
+        // Footer
+        doc.fontSize(8).fillColor('#8e9eab')
+           .text('This is a digitally generated agreement record. The acceptance was recorded electronically on the AapnaEstore platform.', 50, 750, { width: 495, align: 'center' })
+           .text(`AapnaEstore | support@aapnaestore.com | +91 8800244169`, 50, 763, { width: 495, align: 'center' });
+
+        doc.end();
+    } catch (error) {
+        console.error('Terms PDF error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
