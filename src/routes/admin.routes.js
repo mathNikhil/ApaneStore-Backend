@@ -82,12 +82,11 @@ router.get('/terms-acceptances', authenticateAdmin, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT ta.*, t.company_name AS tenant_name, t.phone AS tenant_phone, t.email AS tenant_email,
-                    s.store_name, s.subdomain,
-                    ss.tenant_business_name, ss.tenant_gstin, ss.tenant_address, ss.tenant_state
+                    t.business_name, t.address, t.state, t.gstin, t.pan,
+                    s.store_name, s.subdomain
              FROM terms_acceptances ta
              LEFT JOIN tenants t ON t.id = ta.tenant_id
              LEFT JOIN stores s ON s.id = ta.store_id
-             LEFT JOIN store_subscriptions ss ON ss.store_id = ta.store_id
              ORDER BY ta.accepted_at DESC`
         );
         res.json({ success: true, data: result.rows });
@@ -217,6 +216,45 @@ router.get('/terms-acceptances/:id/download', authenticateAdmin, async (req, res
         console.error('Terms PDF error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
+});
+
+
+// GET tenant invoice details
+router.get('/tenant-invoice-details/:tenantId', authenticateAdmin, async (req, res) => {
+    const pool = require('../config/database');
+    try {
+        const { tenantId } = req.params;
+        const result = await pool.query(
+            'SELECT id, company_name, business_name, phone, email, address, state, gstin, pan FROM tenants WHERE id=$1',
+            [tenantId]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Tenant not found' });
+        res.json({ success: true, data: result.rows[0] });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// POST save tenant invoice details
+router.post('/tenant-invoice-details/:tenantId', authenticateAdmin, async (req, res) => {
+    const pool = require('../config/database');
+    try {
+        const { tenantId } = req.params;
+        const { business_name, address, state, gstin, pan } = req.body;
+        await pool.query(
+            `UPDATE tenants SET
+                business_name = COALESCE(NULLIF($2,''), business_name),
+                address = COALESCE(NULLIF($3,''), address),
+                state = COALESCE(NULLIF($4,''), state),
+                gstin = COALESCE(NULLIF($5,''), gstin),
+                pan = COALESCE(NULLIF($6,''), pan)
+             WHERE id = $1`,
+            [tenantId, business_name||'', address||'', state||'', gstin||'', pan||'']
+        );
+        const result = await pool.query(
+            'SELECT id, company_name, business_name, phone, email, address, state, gstin, pan FROM tenants WHERE id=$1',
+            [tenantId]
+        );
+        res.json({ success: true, data: result.rows[0] });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // Payment gateway configuration
