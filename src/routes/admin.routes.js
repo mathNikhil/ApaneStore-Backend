@@ -225,7 +225,7 @@ router.get('/tenant-invoice-details/:tenantId', authenticateAdmin, async (req, r
     try {
         const { tenantId } = req.params;
         const result = await pool.query(
-            'SELECT id, company_name, business_name, phone, email, address, state, gstin, pan FROM tenants WHERE id=$1',
+            'SELECT id, company_name, business_name, full_name, phone, email, address, state, gst_number as gstin, pan FROM tenants WHERE id=$1',
             [tenantId]
         );
         if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Tenant not found' });
@@ -244,13 +244,13 @@ router.post('/tenant-invoice-details/:tenantId', authenticateAdmin, async (req, 
                 business_name = COALESCE(NULLIF($2,''), business_name),
                 address = COALESCE(NULLIF($3,''), address),
                 state = COALESCE(NULLIF($4,''), state),
-                gstin = COALESCE(NULLIF($5,''), gstin),
+                gst_number = COALESCE(NULLIF($5,''), gst_number),
                 pan = COALESCE(NULLIF($6,''), pan)
              WHERE id = $1`,
             [tenantId, business_name||'', address||'', state||'', gstin||'', pan||'']
         );
         const result = await pool.query(
-            'SELECT id, company_name, business_name, phone, email, address, state, gstin, pan FROM tenants WHERE id=$1',
+            'SELECT id, company_name, business_name, full_name, phone, email, address, state, gst_number as gstin, pan FROM tenants WHERE id=$1',
             [tenantId]
         );
         res.json({ success: true, data: result.rows[0] });
