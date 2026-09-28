@@ -261,10 +261,25 @@ const InvoiceController = {
     try {
       const { subscriptionId } = req.params;
       const tenantId = req.tenantId;
-      const tenant_gstin = req.headers['x-tenant-gstin'] || req.body.tenant_gstin;
-    const tenant_address = req.headers['x-tenant-address'] || req.body.tenant_address;
-    const tenant_state = req.headers['x-tenant-state'] || req.body.tenant_state;
-    const tenant_business_name = req.headers['x-tenant-business'] || req.body.tenant_business_name;
+      let tenant_gstin = req.headers['x-tenant-gstin'] || req.body.tenant_gstin;
+    let tenant_address = req.headers['x-tenant-address'] || req.body.tenant_address;
+    let tenant_state = req.headers['x-tenant-state'] || req.body.tenant_state;
+    let tenant_business_name = req.headers['x-tenant-business'] || req.body.tenant_business_name;
+
+    // If any field missing, read from tenants table as fallback
+    if (!tenant_business_name || !tenant_state) {
+      const tenantResult = await pool.query(
+        'SELECT business_name, company_name, address, state, gstin FROM tenants WHERE id=$1',
+        [row.tenant_id]
+      );
+      if (tenantResult.rows.length > 0) {
+        const t = tenantResult.rows[0];
+        tenant_business_name = tenant_business_name || t.business_name || t.company_name || '';
+        tenant_address = tenant_address || t.address || '';
+        tenant_state = tenant_state || t.state || '';
+        tenant_gstin = tenant_gstin || t.gstin || '';
+      }
+    }
 
     // Save tenant details if provided
     if (tenant_business_name || tenant_state || tenant_gstin || tenant_address) {
