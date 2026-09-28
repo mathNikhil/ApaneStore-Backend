@@ -448,7 +448,7 @@ router.get('/market/invoices/:orderId/download', authenticateAdmin, async (req, 
              (cpo.order_data->>'total_amount')::numeric as total_amount,
              t.company_name as tenant_name, t.email as tenant_email,
              t.phone as tenant_phone, t.business_name, t.full_name,
-             t.gst_number, t.state as tenant_state, t.address as tenant_address,
+             t.gstin as gst_number, t.state as tenant_state, t.address as tenant_address,
              p.name as plan_name, p.description as plan_description,
              p.max_scheduled, p.image_retain_days, p.daily_msg_limit, p.validity_days
       FROM cashfree_pending_orders cpo
