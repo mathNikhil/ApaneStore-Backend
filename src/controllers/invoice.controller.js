@@ -269,7 +269,7 @@ const InvoiceController = {
     // If any field missing, read from tenants table as fallback
     if (!tenant_business_name || !tenant_state) {
       const tenantResult = await pool.query(
-        'SELECT business_name, company_name, address, state, gstin FROM tenants WHERE id=$1',
+        'SELECT business_name, company_name, address, state, gst_number as gstin FROM tenants WHERE id=$1',
         [row.tenant_id]
       );
       if (tenantResult.rows.length > 0) {
