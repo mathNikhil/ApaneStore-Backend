@@ -257,6 +257,78 @@ router.post('/tenant-invoice-details/:tenantId', authenticateAdmin, async (req, 
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+
+// Generate impersonation token for tenant
+router.post('/impersonate/:tenantId', authenticateAdmin, async (req, res) => {
+    const pool = require('../config/database');
+    const jwt = require('jsonwebtoken');
+    const crypto = require('crypto');
+    try {
+        const { tenantId } = req.params;
+        
+        // Check tenant exists
+        const tenantResult = await pool.query(
+            'SELECT id, company_name, phone, email FROM tenants WHERE id=$1',
+            [tenantId]
+        );
+        if (tenantResult.rows.length === 0) 
+            return res.status(404).json({ success: false, error: 'Tenant not found' });
+        
+        const tenant = tenantResult.rows[0];
+        
+        // Generate short-lived impersonation token (15 min)
+        const token = jwt.sign(
+            { 
+                tenantId: tenant.id, 
+                phone: tenant.phone,
+                impersonated: true,
+                adminImpersonation: true
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '15m' }
+        );
+        
+        // Hash token for storage
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+        
+        // Log impersonation
+        await pool.query(
+            `INSERT INTO admin_impersonation_log 
+             (tenant_id, token_hash, expires_at, ip_address)
+             VALUES ($1, $2, $3, $4)`,
+            [tenantId, tokenHash, expiresAt, req.ip]
+        );
+        
+        res.json({ 
+            success: true, 
+            data: { 
+                token, 
+                tenant_name: tenant.company_name,
+                expires_in: '15 minutes'
+            } 
+        });
+    } catch (e) { 
+        console.error('Impersonation error:', e);
+        res.status(500).json({ success: false, error: e.message }); 
+    }
+});
+
+// Get impersonation audit log
+router.get('/impersonation-log', authenticateAdmin, async (req, res) => {
+    const pool = require('../config/database');
+    try {
+        const result = await pool.query(`
+            SELECT il.*, t.company_name as tenant_name, t.phone as tenant_phone
+            FROM admin_impersonation_log il
+            LEFT JOIN tenants t ON t.id = il.tenant_id
+            ORDER BY il.started_at DESC
+            LIMIT 100
+        `);
+        res.json({ success: true, data: result.rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 // Payment gateway configuration
 router.get('/payment-gateway', authenticateAdmin, PlatformSettingsController.getPaymentGatewayConfig);
 router.post('/payment-gateway', authenticateAdmin, PlatformSettingsController.savePaymentGatewayConfig);
