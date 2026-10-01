@@ -618,6 +618,22 @@ router.get('/market/all-invoices', authenticateAdmin, async (req, res) => {
 });
 
 module.exports = router;
+// Video toggle per store
+router.put('/stores/:id/video-toggle', authenticateAdmin, async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const { id } = req.params;
+        const { video_enabled } = req.body;
+        await pool.query(
+            'UPDATE stores SET video_enabled = $1 WHERE id = $2',
+            [!!video_enabled, id]
+        );
+        res.json({ success: true, video_enabled: !!video_enabled });
+    } catch(err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // Trial admin routes
 const TrialController = require('../controllers/trial.controller');
 router.post('/stores/:id/trial/enable', TrialController.adminEnableTrial);

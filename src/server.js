@@ -234,6 +234,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.post('/api/webhooks/cashfree/payment/:storeId', PaymentGatewayController.cashfreePaymentWebhook);
 
 app.use('/api/products', productRoutes);
+app.use('/api/products', require('./routes/video.routes'));
 app.use('/api/admin/login', superAdminLoginLimiter);
 app.use('/api/admin', adminRoutes);
 app.use('/api/store/:storeId/admin/orders', storeAdminOrdersRoutes);
