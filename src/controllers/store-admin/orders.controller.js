@@ -6,11 +6,22 @@ class StoreAdminOrdersController {
     static async getAll(req, res) {
         try {
             const { storeId } = req.params;
-            const { status, search, limit = 50, offset = 0 } = req.query;
+            const { status, search, limit = 50, offset = 0, storeAddressId } = req.query;
+
+            // Check if staff has branch restriction
+            const staffBranchId = req.storeAdmin?.branch_id || null;
+            const effectiveBranchId = staffBranchId || storeAddressId || null;
 
             let query = 'SELECT * FROM orders WHERE store_id = $1';
             let params = [storeId];
             let paramIndex = 2;
+
+            // Filter by store address if staff is restricted or filter applied
+            if (effectiveBranchId) {
+                query += ` AND branch_id = $${paramIndex}`;
+                params.push(effectiveBranchId);
+                paramIndex++;
+            }
 
             if (status && status !== 'all') {
                 query += ` AND status = $${paramIndex}`;
@@ -30,8 +41,13 @@ class StoreAdminOrdersController {
             const result = await pool.query(query, params);
             
             // Get total count
-            const countQuery = 'SELECT COUNT(*) FROM orders WHERE store_id = $1';
-            const countResult = await pool.query(countQuery, [storeId]);
+            let countQuery = 'SELECT COUNT(*) FROM orders WHERE store_id = $1';
+            let countParams = [storeId];
+            if (effectiveBranchId) {
+                countQuery += ' AND branch_id = $2';
+                countParams.push(effectiveBranchId);
+            }
+            const countResult = await pool.query(countQuery, countParams);
 
             res.status(200).json({
                 success: true,
