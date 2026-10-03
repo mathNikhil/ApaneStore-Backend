@@ -27,7 +27,7 @@ const storeAdminAuth = async (req, res, next) => {
         }
 
         const result = await pool.query(
-            'SELECT store_id, active_session_token, session_last_active FROM store_admin_credentials WHERE store_id = $1',
+            'SELECT store_id, active_session_token, session_last_active, branch_id FROM store_admin_credentials WHERE store_id = $1',
             [storeId]
         );
 
@@ -52,6 +52,10 @@ const storeAdminAuth = async (req, res, next) => {
         );
 
         req.adminId = `store-admin:${storeId}`;
+        req.storeAdmin = { 
+            store_id: storeId,
+            branch_id: cred.branch_id || null  // null = sees all, set = sees only that store address
+        };
         next();
     } catch (error) {
         console.error('❌ Store Admin auth error:', error);
