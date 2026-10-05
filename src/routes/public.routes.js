@@ -41,6 +41,7 @@ router.get('/store/:subdomain/resolve-delivery/:pincode', async (req, res) => {
         // Check each store address zones
         for (const address of deliveryZones) {
             for (const zone of (address.zones || [])) {
+                if (!zone.pincode || !zone.pincode.trim()) continue; // skip empty zones
                 if (pincode.startsWith(zone.pincode)) {
                     return res.json({
                         success: true,
