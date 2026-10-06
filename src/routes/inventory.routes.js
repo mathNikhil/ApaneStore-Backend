@@ -43,8 +43,8 @@ router.put('/threshold', storeAdminAuth, async (req, res) => {
 // Uses tenant JWT auth (not store admin auth)
 const { authenticate } = require('../middleware/auth');
 
-// Tenant-accessible endpoint to get current stock for CSV download
-router.get('/stock-for-csv', authenticate, async (req, res) => {
+// Public endpoint to get current stock for CSV download (no auth needed — just store ID)
+router.get('/stock-for-csv', async (req, res) => {
     try {
         const { storeId } = req.params;
         const result = await pool.query(
