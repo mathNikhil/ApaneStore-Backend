@@ -82,7 +82,11 @@ router.post('/sync-csv', authenticate, async (req, res) => {
         // Match by product+variation+size_label — size_id unreliable due to Excel precision loss
         for (const update of updates) {
             const { sizeId, inStock, productName, variationName, size, unit } = update;
-            const sizeLabel = size && unit ? `${size} ${unit}` : (size || '');
+            // Build size label matching inventory format
+            let sizeLabel = '';
+            if (size && unit) sizeLabel = `${size} ${unit}`;
+            else if (size) sizeLabel = size;
+            else sizeLabel = ''; // will match 'Default' or '1 unit' via fallback
             if (productName) {
                 // Match by name — most reliable, works even when sizeId has Excel precision loss
                 await pool.query(
