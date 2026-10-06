@@ -14,7 +14,9 @@ const syncInventory = async (storeId) => {
                         ? (product.images?.[variation.imageIndex]?.url || product.images?.[variation.imageIndex]?.preview)
                         : null) ||
                     product.images?.[0]?.url || product.images?.[0]?.preview || null;
-                for (const size of variation.sizes || []) {
+                // If no sizes defined, create a default size
+                const sizes = variation.sizes?.length > 0 ? variation.sizes : [{ id: `${variation.id}_default`, size: '1', unit: 'unit' }];
+                for (const size of sizes) {
                     await pool.query(`
                         INSERT INTO inventory (store_id, product_id, variation_id, size_id, product_name, variation_name, size_label, price, image_url, category_name)
                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
