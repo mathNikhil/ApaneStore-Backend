@@ -69,12 +69,41 @@ const getInventory = async (req, res) => {
                 WHERE store_id=$1 AND status='returned'
                 GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId'
             ) r ON inv.store_id=r.store_id AND inv.product_id=r.product_id AND inv.variation_id=r.variation_id AND inv.size_id=r.size_id
-            WHERE inv.store_id=$1 AND inv.is_archived=FALSE
+            WHERE inv.store_id=$1
             ORDER BY inv.product_name, inv.variation_name, inv.size_label
         `, [storeId]);
-        const totalValue = result.rows.reduce((s,r) => s + parseFloat(r.total_value||0), 0);
-        const totalItems = result.rows.reduce((s,r) => s + parseInt(r.current_stock||0), 0);
-        res.json({ success: true, data: result.rows, summary: { totalProducts: result.rows.length, totalItems, totalValue } });
+
+        // Sort by config order
+        const storeRes = await pool.query('SELECT config FROM stores WHERE id=$1', [storeId]);
+        const cfg = storeRes.rows[0]?.config;
+        const invOrderMap = {};
+        (cfg?.products?.categories || []).forEach((cat, catIdx) => {
+            (cat.products || []).forEach((prod, prodIdx) => {
+                (prod.variations || []).forEach((vari, variIdx) => {
+                    (vari.sizes || []).forEach((sz, szIdx) => {
+                        invOrderMap[String(sz.id)] = { catIdx, prodIdx, variIdx, szIdx };
+                    });
+                });
+            });
+        });
+        result.rows.sort((a, b) => {
+            const aO = invOrderMap[String(a.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            const bO = invOrderMap[String(b.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            if (aO.catIdx !== bO.catIdx) return aO.catIdx - bO.catIdx;
+            if (aO.prodIdx !== bO.prodIdx) return aO.prodIdx - bO.prodIdx;
+            if (aO.variIdx !== bO.variIdx) return aO.variIdx - bO.variIdx;
+            return aO.szIdx - bO.szIdx;
+        });
+
+        // Separate active and archived — archived shown at bottom greyed out
+        const activeRows = result.rows.filter(r => !r.is_archived);
+        const archivedRows = result.rows.filter(r => r.is_archived);
+        const allRows = [...activeRows, ...archivedRows];
+
+        // Summary only counts active
+        const totalValue = activeRows.reduce((s,r) => s + parseFloat(r.total_value||0), 0);
+        const totalItems = activeRows.reduce((s,r) => s + parseInt(r.current_stock||0), 0);
+        res.json({ success: true, data: allRows, summary: { totalProducts: activeRows.length, totalItems, totalValue } });
     } catch (error) {
         console.error('Inventory GET error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -130,13 +159,48 @@ const downloadCSV = async (req, res) => {
             WHERE inv.store_id=$1 AND inv.is_archived=FALSE
             ORDER BY inv.product_name, inv.variation_name, inv.size_label
         `, [storeId]);
+
+        // Sort by config order instead of alphabetical
+        const invOrderMap = {};
+        (config?.products?.categories || []).forEach((cat, catIdx) => {
+            (cat.products || []).forEach((prod, prodIdx) => {
+                (prod.variations || []).forEach((vari, variIdx) => {
+                    (vari.sizes || []).forEach((sz, szIdx) => {
+                        invOrderMap[String(sz.id)] = { catIdx, prodIdx, variIdx, szIdx };
+                    });
+                });
+            });
+        });
+        result.rows.sort((a, b) => {
+            const aO = invOrderMap[String(a.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            const bO = invOrderMap[String(b.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            if (aO.catIdx !== bO.catIdx) return aO.catIdx - bO.catIdx;
+            if (aO.prodIdx !== bO.prodIdx) return aO.prodIdx - bO.prodIdx;
+            if (aO.variIdx !== bO.variIdx) return aO.variIdx - bO.variIdx;
+            return aO.szIdx - bO.szIdx;
+        });
+
         const headers = ['category_name','product_name','variation_name','size','unit','price','InStock','Sale','Return','Current_Stock','product_id','variation_id','size_id'];
         // Sort by tenant's category order
+        // Build full order map: category → product → variation → size
+        const orderMap = {};
+        (config?.products?.categories || []).forEach((cat, catIdx) => {
+            (cat.products || []).forEach((prod, prodIdx) => {
+                (prod.variations || []).forEach((vari, variIdx) => {
+                    (vari.sizes || []).forEach((sz, szIdx) => {
+                        orderMap[String(sz.id)] = { catIdx, prodIdx, variIdx, szIdx };
+                    });
+                });
+            });
+        });
+
         const sortedRows = result.rows.sort((a, b) => {
-            const aIdx = categoryOrder.find(c => c.name === (a.category_name||'').toLowerCase())?.idx ?? 999;
-            const bIdx = categoryOrder.find(c => c.name === (b.category_name||'').toLowerCase())?.idx ?? 999;
-            if (aIdx !== bIdx) return aIdx - bIdx;
-            return (a.product_name||'').localeCompare(b.product_name||'');
+            const aOrder = orderMap[String(a.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            const bOrder = orderMap[String(b.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            if (aOrder.catIdx !== bOrder.catIdx) return aOrder.catIdx - bOrder.catIdx;
+            if (aOrder.prodIdx !== bOrder.prodIdx) return aOrder.prodIdx - bOrder.prodIdx;
+            if (aOrder.variIdx !== bOrder.variIdx) return aOrder.variIdx - bOrder.variIdx;
+            return aOrder.szIdx - bOrder.szIdx;
         });
 
         const rows = sortedRows.map(r => {
@@ -255,11 +319,25 @@ const downloadTallyCSV = async (req, res) => {
             WHERE inv.store_id=$1 AND inv.is_archived=FALSE
         `, [storeId]);
 
+        // Build full order map: category → product → variation → size
+        const orderMap = {};
+        (config?.products?.categories || []).forEach((cat, catIdx) => {
+            (cat.products || []).forEach((prod, prodIdx) => {
+                (prod.variations || []).forEach((vari, variIdx) => {
+                    (vari.sizes || []).forEach((sz, szIdx) => {
+                        orderMap[String(sz.id)] = { catIdx, prodIdx, variIdx, szIdx };
+                    });
+                });
+            });
+        });
+
         const sortedRows = result.rows.sort((a, b) => {
-            const aIdx = categoryOrder.find(c => c.name === (a.category_name||'').toLowerCase())?.idx ?? 999;
-            const bIdx = categoryOrder.find(c => c.name === (b.category_name||'').toLowerCase())?.idx ?? 999;
-            if (aIdx !== bIdx) return aIdx - bIdx;
-            return (a.product_name||'').localeCompare(b.product_name||'');
+            const aOrder = orderMap[String(a.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            const bOrder = orderMap[String(b.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
+            if (aOrder.catIdx !== bOrder.catIdx) return aOrder.catIdx - bOrder.catIdx;
+            if (aOrder.prodIdx !== bOrder.prodIdx) return aOrder.prodIdx - bOrder.prodIdx;
+            if (aOrder.variIdx !== bOrder.variIdx) return aOrder.variIdx - bOrder.variIdx;
+            return aOrder.szIdx - bOrder.szIdx;
         });
 
         const headers = ['Item Name','Stock Group','HSN/SAC Code','Unit of Measure','GST Rate (%)','Opening Qty','Opening Rate (Rs.)','Opening Value (Rs.)'];
