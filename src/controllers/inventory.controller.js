@@ -15,19 +15,35 @@ const syncInventory = async (storeId) => {
                         : null) ||
                     product.images?.[0]?.url || product.images?.[0]?.preview || null;
                 // If no sizes defined, create a default size
-                const sizes = variation.sizes?.length > 0 ? variation.sizes : [{ id: `${variation.id}_default`, size: '1', unit: 'unit' }];
+                const sizes = variation.sizes?.length > 0 ? variation.sizes : [{ id: `${variation.id}_default`, size: '', unit: '' }];
                 for (const size of sizes) {
-                    await pool.query(`
-                        INSERT INTO inventory (store_id, product_id, variation_id, size_id, product_name, variation_name, size_label, price, image_url, category_name)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-                        ON CONFLICT (store_id, product_id, variation_id, size_id)
-                        DO UPDATE SET product_name=EXCLUDED.product_name, variation_name=EXCLUDED.variation_name,
-                            size_label=EXCLUDED.size_label, price=EXCLUDED.price, image_url=EXCLUDED.image_url,
-                            category_name=EXCLUDED.category_name, is_archived=FALSE, updated_at=NOW()
-                    `, [storeId, String(product.id), String(variation.id), String(size.id),
-                        product.name || 'Unnamed', variation.name || 'Default',
-                        size.size ? `${size.size} ${size.unit||''}`.trim() : 'Default',
-                        parseFloat(size.price)||0, variantImage, category.name || '']);
+                    const sizeLabel = size.size ? `${size.size} ${size.unit||''}`.trim() : 'Default';
+                    // Check if row already exists for this product+variation (regardless of size_id)
+                    const existing = await pool.query(
+                        'SELECT id, size_id FROM inventory WHERE store_id=$1 AND product_id=$2 AND variation_id=$3 LIMIT 1',
+                        [storeId, String(product.id), String(variation.id)]
+                    );
+                    if (existing.rows.length > 0 && existing.rows[0].size_id !== String(size.id)) {
+                        // Update existing row with new size_id and details
+                        await pool.query(`
+                            UPDATE inventory SET size_id=$1, size_label=$2, price=$3, image_url=$4,
+                                product_name=$5, variation_name=$6, category_name=$7, is_archived=FALSE, updated_at=NOW()
+                            WHERE store_id=$8 AND product_id=$9 AND variation_id=$10 AND id=$11
+                        `, [String(size.id), sizeLabel, parseFloat(size.price)||0, variantImage,
+                            product.name||'Unnamed', variation.name||'Default', category.name||'',
+                            storeId, String(product.id), String(variation.id), existing.rows[0].id]);
+                    } else {
+                        await pool.query(`
+                            INSERT INTO inventory (store_id, product_id, variation_id, size_id, product_name, variation_name, size_label, price, image_url, category_name)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                            ON CONFLICT (store_id, product_id, variation_id, size_id)
+                            DO UPDATE SET product_name=EXCLUDED.product_name, variation_name=EXCLUDED.variation_name,
+                                size_label=EXCLUDED.size_label, price=EXCLUDED.price, image_url=EXCLUDED.image_url,
+                                category_name=EXCLUDED.category_name, is_archived=FALSE, updated_at=NOW()
+                        `, [storeId, String(product.id), String(variation.id), String(size.id),
+                            product.name||'Unnamed', variation.name||'Default', sizeLabel,
+                            parseFloat(size.price)||0, variantImage, category.name||'']);
+                    }
                 }
             }
         }
