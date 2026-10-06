@@ -216,4 +216,28 @@ router.get('/trial/eligibility', TrialController.checkEligibility);
 router.post('/:id/trial/activate', TrialController.activateTrial);
 
 // ✅ module.exports MUST be at the bottom — everything above this line is registered
+// GET /api/store/:storeId/orders/count — for Store Admin polling notifications
+router.get('/:storeId/orders/count', async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const { storeId } = req.params;
+        const result = await pool.query(
+            `SELECT COUNT(*) as count FROM orders WHERE store_id = $1`,
+            [storeId]
+        );
+        const latest = await pool.query(
+            `SELECT customer_name, customer_phone, total_amount 
+             FROM orders WHERE store_id = $1 
+             ORDER BY created_at DESC LIMIT 1`,
+            [storeId]
+        );
+        res.json({
+            count: parseInt(result.rows[0].count, 10),
+            latest_order: latest.rows[0] || null
+        });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
