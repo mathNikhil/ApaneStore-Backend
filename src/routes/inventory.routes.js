@@ -71,14 +71,22 @@ router.post('/sync-csv', authenticate, async (req, res) => {
         console.log('sync-csv updates:', updates.length, 'sample:', JSON.stringify(updates[0]));
         // Match by product+variation+size_label — size_id unreliable due to Excel precision loss
         for (const update of updates) {
-            const { inStock, productName, variationName, size, unit } = update;
-            if (!productName) continue;
+            const { sizeId, inStock, productName, variationName, size, unit } = update;
             const sizeLabel = size && unit ? `${size} ${unit}` : (size || '');
-            await pool.query(
-                `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
-                 WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 AND size_label=$5`,
-                [inStock, storeId, productName, variationName || '', sizeLabel]
-            );
+            if (productName) {
+                // Match by name — most reliable, works even when sizeId has Excel precision loss
+                await pool.query(
+                    `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
+                     WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 AND size_label=$5`,
+                    [inStock, storeId, productName, variationName || '', sizeLabel]
+                );
+            } else if (sizeId) {
+                // Fallback: try sizeId directly
+                await pool.query(
+                    `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() WHERE store_id=$2 AND size_id=$3`,
+                    [inStock, storeId, String(sizeId)]
+                );
+            }
         }
         res.json({ success: true });
     } catch (error) {
