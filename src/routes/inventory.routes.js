@@ -69,6 +69,16 @@ router.post('/sync-csv', authenticate, async (req, res) => {
         // First sync inventory to ensure all products are in inventory table
         await syncInventory(storeId);
         console.log('sync-csv updates:', updates.length, 'sample:', JSON.stringify(updates[0]));
+        // Remove inventory rows for products not in CSV upload
+        if (updates.length > 0) {
+            const productNames = [...new Set(updates.map(u => u.productName).filter(Boolean))];
+            if (productNames.length > 0) {
+                await pool.query(
+                    `DELETE FROM inventory WHERE store_id=$1 AND product_name != ALL($2::text[])`,
+                    [storeId, productNames]
+                );
+            }
+        }
         // Match by product+variation+size_label — size_id unreliable due to Excel precision loss
         for (const update of updates) {
             const { sizeId, inStock, productName, variationName, size, unit } = update;
