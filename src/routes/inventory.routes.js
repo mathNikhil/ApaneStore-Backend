@@ -69,6 +69,9 @@ router.post('/sync-csv', authenticate, async (req, res) => {
         // First sync inventory to ensure all products are in inventory table
         await syncInventory(storeId);
         console.log('sync-csv updates:', updates.length, 'sample:', JSON.stringify(updates[0]));
+        const mocktailUpdates = updates.filter(u => u.productName && u.productName.toLowerCase().includes('mocktail') || 
+            ['tropical','watermelon','strawberry','bluefresh','kala','fresh'].some(k => (u.productName||'').toLowerCase().includes(k)));
+        if (mocktailUpdates.length) console.log('Mocktail updates:', JSON.stringify(mocktailUpdates));
         // CSV upload only updates stock — never deletes products from inventory
         // Match by product+variation+size_label — size_id unreliable due to Excel precision loss
         for (const update of updates) {
@@ -80,22 +83,23 @@ router.post('/sync-csv', authenticate, async (req, res) => {
             else sizeLabel = ''; // will match 'Default' or '1 unit' via fallback
             if (productName) {
                 if (sizeLabel) {
-                    // Match by product+variation+size_label
+                    // Try exact match first
                     const r = await pool.query(
                         `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
                          WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 AND size_label=$5`,
                         [inStock, storeId, productName, variationName || '', sizeLabel]
                     );
-                    // If no match try size only (ignore unit)
-                    if (r.rowCount === 0 && size) {
+                    // If no match try size prefix (handles '1' matching '1 unit')
+                    if (r.rowCount === 0) {
                         await pool.query(
                             `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
-                             WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 AND size_label LIKE $5`,
-                            [inStock, storeId, productName, variationName || '', `${size}%`]
+                             WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 
+                             AND (size_label LIKE $5 OR size_label = $6)`,
+                            [inStock, storeId, productName, variationName || '', `${size || sizeLabel}%`, 'Default']
                         );
                     }
                 } else {
-                    // No size — match by product+variation only (single size products like Mocktail)
+                    // No size — match by product+variation only
                     await pool.query(
                         `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
                          WHERE store_id=$2 AND product_name=$3 AND variation_name=$4`,
