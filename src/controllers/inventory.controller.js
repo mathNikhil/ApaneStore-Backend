@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const XLSX = require('xlsx');
 
 const syncInventory = async (storeId) => {
     const storeResult = await pool.query('SELECT config FROM stores WHERE id = $1', [storeId]);
@@ -234,9 +235,26 @@ const downloadCSV = async (req, res) => {
             ];
         });
         const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="inventory-${storeId}.csv"`);
-        res.send(csv);
+        // Convert CSV to XLSX
+        const lines = csv.split('\n');
+        const data = lines.map(line => {
+            const cols = [];
+            let cur = '', inQ = false;
+            for (const ch of line) {
+                if (ch === '"') inQ = !inQ;
+                else if (ch === ',' && !inQ) { cols.push(cur); cur = ''; }
+                else cur += ch;
+            }
+            cols.push(cur);
+            return cols;
+        });
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="inventory-${storeId}.xlsx"`);
+        res.send(buf);
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
 
