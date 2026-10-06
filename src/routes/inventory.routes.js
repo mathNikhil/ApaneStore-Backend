@@ -79,12 +79,29 @@ router.post('/sync-csv', authenticate, async (req, res) => {
             else if (size) sizeLabel = size;
             else sizeLabel = ''; // will match 'Default' or '1 unit' via fallback
             if (productName) {
-                // Match by name — most reliable, works even when sizeId has Excel precision loss
-                await pool.query(
-                    `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
-                     WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 AND size_label=$5`,
-                    [inStock, storeId, productName, variationName || '', sizeLabel]
-                );
+                if (sizeLabel) {
+                    // Match by product+variation+size_label
+                    const r = await pool.query(
+                        `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
+                         WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 AND size_label=$5`,
+                        [inStock, storeId, productName, variationName || '', sizeLabel]
+                    );
+                    // If no match try size only (ignore unit)
+                    if (r.rowCount === 0 && size) {
+                        await pool.query(
+                            `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
+                             WHERE store_id=$2 AND product_name=$3 AND variation_name=$4 AND size_label LIKE $5`,
+                            [inStock, storeId, productName, variationName || '', `${size}%`]
+                        );
+                    }
+                } else {
+                    // No size — match by product+variation only (single size products like Mocktail)
+                    await pool.query(
+                        `UPDATE inventory SET stock_quantity=$1, updated_at=NOW() 
+                         WHERE store_id=$2 AND product_name=$3 AND variation_name=$4`,
+                        [inStock, storeId, productName, variationName || '']
+                    );
+                }
             } else if (sizeId) {
                 // Fallback: try sizeId directly
                 await pool.query(
