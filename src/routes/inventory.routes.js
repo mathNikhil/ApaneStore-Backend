@@ -42,6 +42,23 @@ router.put('/threshold', storeAdminAuth, async (req, res) => {
 // Tenant CSV sync endpoint (called from Step 2 after product upload)
 // Uses tenant JWT auth (not store admin auth)
 const { authenticate } = require('../middleware/auth');
+
+// Tenant-accessible endpoint to get current stock for CSV download
+router.get('/stock-for-csv', authenticate, async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const result = await pool.query(
+            'SELECT size_id, stock_quantity FROM inventory WHERE store_id=$1 AND is_archived=FALSE',
+            [storeId]
+        );
+        const stockMap = {};
+        result.rows.forEach(r => { stockMap[String(r.size_id)] = parseInt(r.stock_quantity) || 0; });
+        res.json({ success: true, data: stockMap });
+    } catch(e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 router.post('/sync-csv', authenticate, async (req, res) => {
     try {
         const { storeId } = req.params;
