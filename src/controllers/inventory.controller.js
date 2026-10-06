@@ -18,20 +18,20 @@ const syncInventory = async (storeId) => {
                 const sizes = variation.sizes?.length > 0 ? variation.sizes : [{ id: `${variation.id}_default`, size: '', unit: '' }];
                 for (const size of sizes) {
                     const sizeLabel = size.size ? `${size.size} ${size.unit||''}`.trim() : 'Default';
-                    // Check if row already exists for this product+variation (regardless of size_id)
+                    // Only update existing row if it has _default size_id (placeholder)
                     const existing = await pool.query(
-                        'SELECT id, size_id FROM inventory WHERE store_id=$1 AND product_id=$2 AND variation_id=$3 LIMIT 1',
-                        [storeId, String(product.id), String(variation.id)]
+                        'SELECT id, size_id FROM inventory WHERE store_id=$1 AND product_id=$2 AND variation_id=$3 AND size_id=$4 LIMIT 1',
+                        [storeId, String(product.id), String(variation.id), `${variation.id}_default`]
                     );
-                    if (existing.rows.length > 0 && existing.rows[0].size_id !== String(size.id)) {
-                        // Update existing row with new size_id and details
+                    if (existing.rows.length > 0 && String(size.id) !== `${variation.id}_default`) {
+                        // Replace _default placeholder with real size_id
                         await pool.query(`
                             UPDATE inventory SET size_id=$1, size_label=$2, price=$3, image_url=$4,
                                 product_name=$5, variation_name=$6, category_name=$7, is_archived=FALSE, updated_at=NOW()
-                            WHERE store_id=$8 AND product_id=$9 AND variation_id=$10 AND id=$11
+                            WHERE store_id=$8 AND id=$9
                         `, [String(size.id), sizeLabel, parseFloat(size.price)||0, variantImage,
                             product.name||'Unnamed', variation.name||'Default', category.name||'',
-                            storeId, String(product.id), String(variation.id), existing.rows[0].id]);
+                            storeId, existing.rows[0].id]);
                     } else {
                         await pool.query(`
                             INSERT INTO inventory (store_id, product_id, variation_id, size_id, product_name, variation_name, size_label, price, image_url, category_name)
