@@ -68,6 +68,7 @@ router.post('/sync-csv', authenticate, async (req, res) => {
         }
         // First sync inventory to ensure all products are in inventory table
         await syncInventory(storeId);
+        console.log('sync-csv updates sample:', JSON.stringify(updates.slice(0,3)));
         // Then update stock quantities
         for (const { sizeId, inStock } of updates) {
             await pool.query(
