@@ -282,6 +282,26 @@ const syncStore = async (req, res) => {
     try {
         const { storeId } = req.params;
         await syncInventory(storeId);
+
+        // Archive products in inventory that no longer exist in store config
+        const storeResult = await pool.query('SELECT config FROM stores WHERE id=$1', [storeId]);
+        const config = storeResult.rows[0]?.config;
+        const configProductIds = [];
+        (config?.products?.categories || []).forEach(cat => {
+            (cat.products || []).forEach(prod => {
+                if (!prod._archived) configProductIds.push(String(prod.id));
+            });
+        });
+
+        if (configProductIds.length > 0) {
+            // Archive inventory rows for products not in config
+            await pool.query(
+                `UPDATE inventory SET is_archived=TRUE, updated_at=NOW() 
+                 WHERE store_id=$1 AND product_id != ALL($2::text[]) AND is_archived=FALSE`,
+                [storeId, configProductIds]
+            );
+        }
+
         res.json({ success: true, message: 'Synced successfully' });
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
