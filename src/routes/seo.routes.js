@@ -179,3 +179,25 @@ router.get('/platform-sitemap', async (req, res) => {
 });
 
 module.exports = router;
+
+// Public platform SEO settings endpoint (used by Cloudflare Worker)
+router.get('/platform-settings', async (req, res) => {
+    try {
+        const result = await pool.query(
+            "SELECT value FROM platform_settings WHERE key='seo_settings' LIMIT 1"
+        );
+        if (result.rows.length) {
+            res.json({ success: true, data: JSON.parse(result.rows[0].value) });
+        } else {
+            res.json({ success: true, data: {
+                title: 'AapnaEstore - Create Your Online Store in Minutes',
+                description: 'AapnaEstore helps Indian businesses launch their own online store.',
+                ogDescription: 'Launch your own branded online store with WhatsApp ordering.',
+                keywords: 'online store builder india, create estore',
+                ogImage: 'https://aapnaestore.com/og-banner.png',
+                siteName: 'AapnaEstore'
+            }});
+        }
+    } catch(e) { res.status(500).json({ success: false, error: e.message }); }
+});
+module.exports = router;
