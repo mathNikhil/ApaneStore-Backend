@@ -44,6 +44,36 @@ ${extraContext ? `Additional info: ${extraContext}.` : ''}
 Return ONLY a JSON object: {"about":"full about us text here"}`;
                 break;
 
+            case 'seo_title':
+                prompt = `Write 5 SEO-optimized Google search titles for "${businessName}", a ${businessType} store.${targetCustomer ? ` Target customers: ${targetCustomer}.` : ''}
+Rules: max 60 characters each, include store name, be specific and compelling.
+Return ONLY a JSON array of 5 strings: ["title1","title2","title3","title4","title5"]`;
+                break;
+
+            case 'meta_description':
+                prompt = `Write 3 SEO meta descriptions for "${businessName}", a ${businessType} store.${targetCustomer ? ` Target customers: ${targetCustomer}.` : ''}${extraContext ? ` Context: ${extraContext}.` : ''}
+Rules: max 160 characters each, include a call to action, mention key products or services.
+Return ONLY a JSON array of 3 strings: ["desc1","desc2","desc3"]`;
+                break;
+
+            case 'keywords':
+                prompt = `Generate 15 SEO keywords for "${businessName}", a ${businessType} store.${targetCustomer ? ` Target customers: ${targetCustomer}.` : ''}
+Include: product keywords, location keywords, long-tail keywords.
+Return ONLY a JSON array of 15 comma-separated keyword strings: ["kw1","kw2",...]`;
+                break;
+
+            case 'shipping_info':
+                prompt = `Write 3 shipping policy options for "${businessName}", a ${businessType} store.${targetCustomer ? ` Target customers: ${targetCustomer}.` : ''}
+Include delivery timeframes, charges, free delivery threshold if applicable. Keep each under 100 words.
+Return ONLY a JSON array of 3 strings: ["policy1","policy2","policy3"]`;
+                break;
+
+            case 'return_policy':
+                prompt = `Write 3 return and exchange policy options for "${businessName}", a ${businessType} store.${targetCustomer ? ` Target customers: ${targetCustomer}.` : ''}
+Include return window, conditions, process. Keep each under 150 words. Professional and customer-friendly tone.
+Return ONLY a JSON array of 3 strings: ["policy1","policy2","policy3"]`;
+                break;
+
             default:
                 return res.status(400).json({ success: false, error: 'Invalid type' });
         }
