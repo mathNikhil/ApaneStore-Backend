@@ -8,6 +8,16 @@ const BOT_AGENTS = ['googlebot', 'bingbot', 'facebookexternalhit', 'twitterbot',
 
 const isBot = (ua = '') => BOT_AGENTS.some(bot => ua.toLowerCase().includes(bot));
 
+// Sanitize tenant input — prevent HTML injection
+const sanitize = (str = '') => String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .trim()
+    .substring(0, 500);
+
 // Serve meta-injected HTML for bots visiting storefront subdomains
 router.get('/meta', async (req, res) => {
     try {
@@ -21,7 +31,7 @@ router.get('/meta', async (req, res) => {
 
         // Get store data from DB
         const result = await pool.query(
-            `SELECT config, name FROM stores WHERE subdomain=$1 AND status='active' LIMIT 1`,
+            `SELECT config, store_name FROM stores WHERE subdomain=$1 LIMIT 1`,
             [subdomain]
         );
 
@@ -32,10 +42,10 @@ router.get('/meta', async (req, res) => {
         const profile = config.profile || {};
         const brand = config.brand || {};
 
-        const storeName = store.name || profile.storeName || subdomain;
-        const seoTitle = profile.seoTitle || `${storeName} - Shop Online`;
-        const seoDescription = profile.seoDescription || profile.aboutUs?.substring(0, 160) || `Shop at ${storeName}`;
-        const seoKeywords = profile.seoKeywords || '';
+        const storeName = sanitize(store.store_name || profile.storeName || subdomain);
+        const seoTitle = sanitize(profile.seoTitle || `${storeName} - Shop Online`);
+        const seoDescription = sanitize(profile.seoDescription || profile.aboutUs?.substring(0, 160) || `Shop at ${storeName}`);
+        const seoKeywords = sanitize(profile.seoKeywords || '');
         const ogImage = brand.logoUrl || profile.logoUrl || 'https://aapnaestore.com/og-default.png';
         const url = `https://${host}`;
 
