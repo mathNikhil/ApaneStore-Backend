@@ -216,6 +216,10 @@ app.use('/api/tenants', tenantRoutes);
 app.use('/api/stores', imageRoutes); 
 app.use('/api/stores', storeRoutes);
 
+// SEO bot meta injection
+const seoRoutes = require('./routes/seo.routes');
+app.use('/seo', seoRoutes);
+
 // ✅ NEW — WhatsApp Market API (completely separate from all existing routes)
 app.use('/api/tenants/:storeId/market', waRoutes);
 const { authenticateAdmin } = require('./middleware/admin.auth');
