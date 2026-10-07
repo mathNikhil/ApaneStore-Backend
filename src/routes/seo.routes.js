@@ -22,7 +22,7 @@ const sanitize = (str = '') => String(str)
 router.get('/meta', async (req, res) => {
     try {
         const ua = req.headers['user-agent'] || '';
-        const host = req.headers['x-forwarded-host'] || req.headers['host'] || '';
+        const host = req.query.host || req.headers['x-forwarded-host'] || req.headers['host'] || '';
         const subdomain = host.split('.')[0];
 
         if (!isBot(ua) && req.query.preview !== '1') {
@@ -91,7 +91,7 @@ router.get('/meta', async (req, res) => {
 // robots.txt per store
 router.get('/robots', async (req, res) => {
     try {
-        const host = req.headers['x-forwarded-host'] || req.headers['host'] || '';
+        const host = req.query.host || req.headers['x-forwarded-host'] || req.headers['host'] || '';
         const subdomain = host.split('.')[0];
         
         // Check if valid store
@@ -119,7 +119,7 @@ Sitemap: https://${host}/sitemap.xml`;
 // sitemap.xml per store
 router.get('/sitemap', async (req, res) => {
     try {
-        const host = req.headers['x-forwarded-host'] || req.headers['host'] || '';
+        const host = req.query.host || req.headers['x-forwarded-host'] || req.headers['host'] || '';
         const subdomain = host.split('.')[0];
 
         const result = await pool.query(
