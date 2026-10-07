@@ -29,11 +29,19 @@ router.get('/meta', async (req, res) => {
             return res.status(200).json({ bot: false });
         }
 
-        // Get store data from DB
-        const result = await pool.query(
+        // Get store data from DB — check subdomain first, then custom domain
+        let result = await pool.query(
             `SELECT config, store_name FROM stores WHERE subdomain=$1 LIMIT 1`,
             [subdomain]
         );
+
+        // If not found by subdomain, try custom domain match
+        if (!result.rows.length) {
+            result = await pool.query(
+                `SELECT config, store_name FROM stores WHERE config->>'customDomain' ILIKE $1 OR config->>'customDomain' ILIKE $2 LIMIT 1`,
+                [host, `www.${host}`]
+            );
+        }
 
         if (!result.rows.length) return res.status(404).send('Not found');
 
