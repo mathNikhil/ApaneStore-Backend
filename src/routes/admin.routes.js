@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateAdmin } = require('../middleware/admin.auth');
+const pool = require('../config/database');
 
 // Controllers
 const AdminAuthController = require('../controllers/Admin/auth.controller');
@@ -685,4 +686,35 @@ router.post('/billing-settings', authenticateAdmin, async (req, res) => {
         }
         res.json({ success: true, message: 'Billing settings saved' });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// Platform SEO Settings
+router.get('/seo-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pool.query(
+            "SELECT value FROM platform_settings WHERE key='seo_settings' LIMIT 1"
+        );
+        if (result.rows.length) {
+            res.json({ success: true, data: JSON.parse(result.rows[0].value) });
+        } else {
+            res.json({ success: true, data: {
+                title: 'AapnaEstore - Create Your Online Store in Minutes',
+                description: 'AapnaEstore helps Indian businesses launch their own online store with WhatsApp ordering, inventory management, and custom storefront. Start free today.',
+                keywords: 'online store builder india, create estore, whatsapp ordering, inventory management, indian ecommerce, free online store',
+                ogImage: 'https://aapnaestore.com/og-banner.png'
+            }});
+        }
+    } catch(e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.post('/seo-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const { title, description, ogDescription, keywords, ogImage, siteName, siteUrl } = req.body;
+        await pool.query(
+            `INSERT INTO platform_settings (key, value) VALUES ('seo_settings', $1)
+             ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+            [JSON.stringify({ title, description, ogDescription, keywords, ogImage, siteName, siteUrl })]
+        );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ success: false, error: e.message }); }
 });
