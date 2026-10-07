@@ -78,7 +78,7 @@ router.get('/meta', async (req, res) => {
     <meta name="twitter:image" content="${ogImage}">
     <link rel="canonical" href="${url}">`;
 
-        html = html.replace('<title>Storefront - Apna eStore</title>', metaTags);
+        html = html.replace(/<title>[^<]*<\/title>/, metaTags);
 
         res.setHeader('Content-Type', 'text/html');
         res.send(html);
