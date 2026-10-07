@@ -88,4 +88,75 @@ router.get('/meta', async (req, res) => {
     }
 });
 
+// robots.txt per store
+router.get('/robots', async (req, res) => {
+    try {
+        const host = req.headers['x-forwarded-host'] || req.headers['host'] || '';
+        const subdomain = host.split('.')[0];
+        
+        // Check if valid store
+        const result = await pool.query(
+            'SELECT subdomain FROM stores WHERE subdomain=$1 LIMIT 1',
+            [subdomain]
+        );
+
+        if (!result.rows.length) {
+            return res.status(404).send('Not found');
+        }
+
+        const robotsTxt = `User-agent: *
+Allow: /
+
+Sitemap: https://${host}/sitemap.xml`;
+
+        res.setHeader('Content-Type', 'text/plain');
+        res.send(robotsTxt);
+    } catch(e) {
+        res.status(500).send('Error');
+    }
+});
+
+// sitemap.xml per store
+router.get('/sitemap', async (req, res) => {
+    try {
+        const host = req.headers['x-forwarded-host'] || req.headers['host'] || '';
+        const subdomain = host.split('.')[0];
+
+        const result = await pool.query(
+            'SELECT config, store_name FROM stores WHERE subdomain=$1 LIMIT 1',
+            [subdomain]
+        );
+
+        if (!result.rows.length) return res.status(404).send('Not found');
+
+        const config = result.rows[0].config || {};
+        const categories = config?.products?.categories || [];
+        const baseUrl = `https://${host}`;
+        const now = new Date().toISOString().split('T')[0];
+
+        let urls = [
+            `  <url><loc>${baseUrl}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>`
+        ];
+
+        // Add category and product URLs
+        categories.forEach(cat => {
+            (cat.products || []).forEach(prod => {
+                if (!prod._archived) {
+                    urls.push(`  <url><loc>${baseUrl}?product=${prod.id}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`);
+                }
+            });
+        });
+
+        const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join('\n')}
+</urlset>`;
+
+        res.setHeader('Content-Type', 'application/xml');
+        res.send(sitemap);
+    } catch(e) {
+        res.status(500).send('Error');
+    }
+});
+
 module.exports = router;
