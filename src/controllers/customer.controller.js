@@ -36,7 +36,7 @@ class CustomerController {
     static async verifyOTP(req, res) {
         try {
             const { storeId } = req.params;
-            const { phone, otp } = req.body;
+            const { phone, otp, consentGiven } = req.body;
 
             if (!phone || !otp) {
                 return res.status(400).json({
@@ -50,7 +50,7 @@ class CustomerController {
                 return res.status(400).json(result);
             }
 
-            const loginResult = await CustomerService.loginOrRegisterByPhone(storeId, phone);
+            const loginResult = await CustomerService.loginOrRegisterByPhone(storeId, phone, consentGiven);
             if (!loginResult.success) {
                 return res.status(400).json(loginResult);
             }
