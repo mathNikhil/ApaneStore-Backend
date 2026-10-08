@@ -13,7 +13,7 @@ class StoreAdminCustomersController {
                     ca.pincode, ca.landmark, ca.recipient_name, ca.recipient_mobile
                 FROM customers c
                 LEFT JOIN customer_addresses ca ON ca.customer_id = c.id AND ca.is_default = true
-                WHERE c.store_id = $1
+                WHERE c.store_id = $1 AND (c.is_deleted IS NULL OR c.is_deleted = FALSE)
             `;
             let params = [storeId];
             let paramIndex = 2;
@@ -29,7 +29,7 @@ class StoreAdminCustomersController {
 
             const result = await pool.query(baseQuery, params);
 
-            const countQuery = 'SELECT COUNT(*) FROM customers WHERE store_id = $1';
+            const countQuery = 'SELECT COUNT(*) FROM customers WHERE store_id = $1 AND (is_deleted IS NULL OR is_deleted = FALSE)';
             const countResult = await pool.query(countQuery, [storeId]);
 
             res.status(200).json({
