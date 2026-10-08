@@ -29,20 +29,26 @@ class CustomerService {
                     await pool.query('UPDATE customers SET is_verified = true WHERE id = $1', [customer.id]);
                     customer.is_verified = true;
                 }
+                // Save consent if not already saved
+                if (consentGiven && !customer.consent_given) {
+                    await pool.query(
+                        'UPDATE customers SET consent_given=TRUE, consent_date=NOW() WHERE id=$1',
+                        [customer.id]
+                    );
+                }
             } else {
                 const timestamp = Date.now().toString().slice(-6);
                 const customerId = `CUS-${timestamp}-${Math.floor(Math.random() * 10000)}`;
 
                 const inserted = await pool.query(
-                    `INSERT INTO customers (customer_id, store_id, phone, is_verified)
-                     VALUES ($1, $2, $3, true)
-                     RETURNING id, customer_id, store_id, phone, name, is_verified`,
-                    [customerId, storeId, phone]
+                    `INSERT INTO customers (customer_id, store_id, phone, is_verified, consent_given, consent_date)
+                     VALUES ($1, $2, $3, true, $4, $5)
+                     RETURNING id, customer_id, store_id, phone, name, is_verified, consent_given`,
+                    [customerId, storeId, phone, !!consentGiven, consentGiven ? new Date() : null]
                 );
                 customer = inserted.rows[0];
                 isNewCustomer = true;
                 logger.info(`✅ New customer auto-registered via OTP: ${phone} @ store ${storeId}`);
-
             }
 
             const token = jwt.sign(
