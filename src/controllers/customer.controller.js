@@ -21,6 +21,18 @@ class CustomerController {
             // (purpose is VARCHAR(20), so it can't embed a storeId UUID.)
             const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
             const result = await OTPService.sendOTP(phone, null, 'customer_login', ipAddress);
+            
+            // Check if customer exists in this store
+            if (result.success) {
+                const pool = require('../config/database');
+                const existing = await pool.query(
+                    'SELECT id, consent_given FROM customers WHERE store_id=$1 AND phone=$2 LIMIT 1',
+                    [storeId, phone]
+                );
+                result.isNewCustomer = existing.rows.length === 0;
+                result.hasConsented = existing.rows.length > 0 && existing.rows[0].consent_given;
+            }
+            
             res.status(result.success ? 200 : (result.rateLimited ? 429 : 500)).json(result);
         } catch (error) {
             logger.error('❌ Customer send OTP error:', error);
