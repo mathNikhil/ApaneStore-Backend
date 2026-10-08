@@ -7,7 +7,7 @@ class CustomerService {
     // Passwordless login, scoped to a single store. The same phone number can
     // be a separate customer at every store it shops at — each store owns its
     // own customer list, its own OTP flow, its own session.
-    static async loginOrRegisterByPhone(storeId, phone) {
+    static async loginOrRegisterByPhone(storeId, phone, consentGiven = false) {
         try {
             const storeCheck = await pool.query('SELECT id FROM stores WHERE id = $1', [storeId]);
             if (storeCheck.rows.length === 0) {
