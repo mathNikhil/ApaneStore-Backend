@@ -501,6 +501,7 @@ const runColumnMigrations = async () => {
         `ALTER TABLE customers ADD COLUMN IF NOT EXISTS consent_given BOOLEAN DEFAULT FALSE`,
         `ALTER TABLE customers ADD COLUMN IF NOT EXISTS consent_date TIMESTAMP`,
         `ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE`,
+        `ALTER TABLE inventory ADD COLUMN IF NOT EXISTS tally_item_name TEXT`,
     ];
 
     let applied = 0;
