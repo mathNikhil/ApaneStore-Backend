@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router({ mergeParams: true });
 const { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory } = require('../controllers/inventory.controller');
 const { storeAdminAuth } = require('../middleware/storeAdminAuth');
+const pool = require('../config/database');
 
 router.get('/', storeAdminAuth, getInventory);
 router.put('/:inventoryId', storeAdminAuth, updateStock);
@@ -121,3 +122,16 @@ router.post('/sync-csv', authenticate, async (req, res) => {
 });
 
 module.exports = router;
+
+// Save tally/account name for inventory row
+router.patch('/:inventoryId/tally-name', storeAdminAuth, async (req, res) => {
+    try {
+        const { inventoryId, storeId } = req.params;
+        const { tally_item_name } = req.body;
+        await pool.query(
+            'UPDATE inventory SET tally_item_name=$1 WHERE id=$2 AND store_id=$3',
+            [tally_item_name, inventoryId, storeId]
+        );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ success: false, error: e.message }); }
+});
