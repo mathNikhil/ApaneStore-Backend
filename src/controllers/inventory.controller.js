@@ -199,7 +199,7 @@ const downloadCSV = async (req, res) => {
             return aO.szIdx - bO.szIdx;
         });
 
-        const headers = ['category_name','product_name','variation_name','size','unit','price','InStock','Sale','Return','Current_Stock','product_id','variation_id','size_id'];
+        const headers = ['Product Name','Variation','Size','Unit','Account Name','Price','Stock In','Sold','Returned','Stock Out','Closing Balance','Total Value','product_id','variation_id','size_id'];
         // Sort by tenant's category order
         // Build full order map: category → product → variation → size
         const orderMap = {};
@@ -228,9 +228,14 @@ const downloadCSV = async (req, res) => {
             const sizeMatch = sizeLabel.match(/^([\d.]+)\s*(.*)$/);
             const size = sizeMatch ? sizeMatch[1] : sizeLabel;
             const unit = sizeMatch ? sizeMatch[2].trim() : '';
+            const stockOut = parseInt(r.total_sold || 0) - parseInt(r.total_returned || 0);
+            const closingBalance = parseInt(r.stock_quantity || 0) - parseInt(r.total_sold || 0) + parseInt(r.total_returned || 0);
+            const totalValue = (closingBalance * parseFloat(r.price || 0)).toFixed(2);
             return [
-                `"${r.category_name || ''}"`, `"${r.product_name}"`, `"${r.variation_name}"`,
-                size, unit, r.price, r.stock_quantity, r.total_sold, r.total_returned, r.current_stock,
+                `"${r.product_name}"`, `"${r.variation_name}"`,
+                size, unit, `"${r.tally_item_name || ''}"`, r.price,
+                r.stock_quantity, r.total_sold, r.total_returned,
+                stockOut, closingBalance, totalValue,
                 `="${r.product_id}"`, `="${r.variation_id}"`, `="${r.size_id}"`
             ];
         });
