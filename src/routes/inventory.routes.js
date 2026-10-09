@@ -11,7 +11,6 @@ router.get('/download-tally-csv', storeAdminAuth, downloadTallyCSV);
 router.post('/upload-csv', storeAdminAuth, uploadCSV);
 router.post('/sync', storeAdminAuth, syncStore);
 
-const pool = require('../config/database');
 
 // GET threshold
 router.get('/threshold', storeAdminAuth, async (req, res) => {
@@ -121,8 +120,6 @@ router.post('/sync-csv', authenticate, async (req, res) => {
     }
 });
 
-module.exports = router;
-
 // Save tally/account name for inventory row
 router.patch('/:inventoryId/tally-name', storeAdminAuth, async (req, res) => {
     try {
@@ -135,3 +132,6 @@ router.patch('/:inventoryId/tally-name', storeAdminAuth, async (req, res) => {
         res.json({ success: true });
     } catch(e) { res.status(500).json({ success: false, error: e.message }); }
 });
+
+module.exports = router;
+
