@@ -39,10 +39,11 @@ router.post('/google', async (req, res) => {
             }
         }
 
-        const isNewTenant = !tenant;
-
         if (tenant) {
-            // Existing tenant — issue JWT
+            // Update google_id if not set
+            if (!tenant.google_id) {
+                await pool.query('UPDATE tenants SET google_id=$1 WHERE id=$2', [googleId, tenant.id]);
+            }
             const token = jwt.sign(
                 { tenantId: tenant.id, email: tenant.email, role: 'tenant' },
                 process.env.JWT_SECRET,
@@ -61,7 +62,8 @@ router.post('/google', async (req, res) => {
                 }
             });
         } else {
-            // New tenant — return Google profile, frontend will show completion form
+            // Not found by google_id or email — could be existing phone tenant
+            // Return google profile, frontend will ask for phone to link or complete new registration
             return res.json({
                 success: true,
                 isNewTenant: true,
@@ -73,6 +75,50 @@ router.post('/google', async (req, res) => {
         }
     } catch (e) {
         console.error('Google auth error:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Link existing phone tenant to Google account
+router.post('/google/link-phone', async (req, res) => {
+    try {
+        const { googleId, email, name, phone } = req.body;
+        if (!googleId || !phone) return res.status(400).json({ success: false, error: 'Missing fields' });
+
+        const phoneClean = phone.replace(/\D/g, '');
+        const existing = await pool.query(
+            'SELECT * FROM tenants WHERE phone=$1 LIMIT 1', [phoneClean]
+        );
+
+        if (existing.rows.length > 0) {
+            const tenant = existing.rows[0];
+            // Link google_id and update email if needed
+            await pool.query(
+                'UPDATE tenants SET google_id=$1, email=COALESCE(NULLIF(email,\'\'), $2) WHERE id=$3',
+                [googleId, email, tenant.id]
+            );
+            const token = jwt.sign(
+                { tenantId: tenant.id, email: tenant.email || email, role: 'tenant' },
+                process.env.JWT_SECRET,
+                { expiresIn: '30d' }
+            );
+            return res.json({
+                success: true,
+                linked: true,
+                token,
+                tenant: {
+                    id: tenant.id,
+                    email: tenant.email || email,
+                    company_name: tenant.company_name,
+                    business_type: tenant.business_type,
+                    is_verified: tenant.is_verified,
+                }
+            });
+        } else {
+            // Phone not found — new tenant
+            return res.json({ success: true, linked: false });
+        }
+    } catch(e) {
         res.status(500).json({ success: false, error: e.message });
     }
 });
