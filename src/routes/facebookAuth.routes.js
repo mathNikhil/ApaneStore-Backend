@@ -87,3 +87,51 @@ router.post('/facebook/link-phone', async (req, res) => {
 });
 
 module.exports = router;
+
+// Facebook Data Deletion Callback
+router.post('/facebook/data-deletion', async (req, res) => {
+    try {
+        const { signed_request } = req.body;
+        if (!signed_request) return res.status(400).json({ error: 'Missing signed_request' });
+
+        // Parse signed request
+        const [encodedSig, payload] = signed_request.split('.');
+        const crypto = require('crypto');
+        const appSecret = process.env.FACEBOOK_APP_SECRET;
+
+        // Verify signature
+        const expectedSig = crypto.createHmac('sha256', appSecret)
+            .update(payload).digest('base64')
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+        if (encodedSig !== expectedSig) {
+            return res.status(400).json({ error: 'Invalid signature' });
+        }
+
+        const data = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+        const facebookId = data.user_id;
+
+        // Anonymize tenant data
+        const confirmationCode = 'DEL-' + Date.now() + '-' + facebookId.slice(-4);
+        await pool.query(
+            `UPDATE tenants SET 
+                facebook_id = NULL,
+                email = CONCAT('deleted_fb_', id::text, '@deleted.com'),
+                phone = CONCAT('deleted_', id::text),
+                company_name = 'Deleted User'
+            WHERE facebook_id = $1`,
+            [facebookId]
+        );
+
+        // Log deletion request
+        console.log('Facebook data deletion request for:', facebookId, 'code:', confirmationCode);
+
+        res.json({
+            url: `https://aapnaestore.com/profile/data-deletion?code=${confirmationCode}`,
+            confirmation_code: confirmationCode
+        });
+    } catch(e) {
+        console.error('FB data deletion error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
