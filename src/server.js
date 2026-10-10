@@ -210,6 +210,7 @@ app.use('/api/auth/send-otp', authLimiter);
 app.use('/api/auth/verify-otp', authLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', require('./routes/googleAuth.routes'));
+app.use('/api/auth', require('./routes/facebookAuth.routes'));
 app.use('/api/tenants', tenantRoutes);
 
 // ✅ CRITICAL FIX: Mount Image Routes BEFORE Store Routes
