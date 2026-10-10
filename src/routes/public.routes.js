@@ -78,3 +78,18 @@ router.get('/store/:subdomain/resolve-delivery/:pincode', async (req, res) => {
 });
 
 module.exports = router;
+
+// Get store info by ID (for popup auth branding)
+router.get('/store-by-id/:storeId', async (req, res) => {
+    try {
+        const pool = require('../config/database');
+        const { storeId } = req.params;
+        const result = await pool.query(
+            'SELECT id, name, subdomain, config FROM stores WHERE id=$1 AND status=$2 LIMIT 1',
+            [storeId, 'published']
+        );
+        if (!result.rows.length) return res.json({ success: false });
+        const store = result.rows[0];
+        res.json({ success: true, data: { id: store.id, name: store.name, subdomain: store.subdomain, config: store.config } });
+    } catch(e) { res.status(500).json({ success: false }); }
+});
