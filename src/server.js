@@ -435,6 +435,7 @@ app.use('/api/store/:storeId/slots', require('./routes/slots.routes'));
 app.use('/api/store/:storeId/inventory', require('./routes/inventory.routes'));
 app.use('/api/store/:storeId/orders', customerOrderRoutes);
 app.use('/api/store/:storeId/customers/me', customerProfileRoutes);
+app.use('/api/store/:storeId', require('./routes/customerSocialAuth.routes'));
 app.use('/api/public', publicRoutes);
 app.use('/api/tracking', trackingRoutes);
 
