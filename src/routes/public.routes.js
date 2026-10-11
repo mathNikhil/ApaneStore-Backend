@@ -85,11 +85,11 @@ router.get('/store-by-id/:storeId', async (req, res) => {
         const pool = require('../config/database');
         const { storeId } = req.params;
         const result = await pool.query(
-            'SELECT id, name, subdomain, config FROM stores WHERE id=$1 AND status=$2 LIMIT 1',
+            'SELECT id, store_name, subdomain, config, store_logo_url FROM stores WHERE id=$1 AND status=$2 LIMIT 1',
             [storeId, 'published']
         );
         if (!result.rows.length) return res.json({ success: false });
         const store = result.rows[0];
-        res.json({ success: true, data: { id: store.id, name: store.name, subdomain: store.subdomain, config: store.config } });
+        res.json({ success: true, data: { id: store.id, name: store.store_name, subdomain: store.subdomain, config: store.config, logoUrl: store.store_logo_url } });
     } catch(e) { res.status(500).json({ success: false }); }
 });
