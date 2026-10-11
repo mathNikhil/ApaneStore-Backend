@@ -64,11 +64,12 @@ router.post('/auth/social/facebook', async (req, res) => {
         // Verify token
         const verifyRes = await fetch(`https://graph.facebook.com/debug_token?input_token=${accessToken}&access_token=${process.env.FACEBOOK_APP_ID}|${process.env.FACEBOOK_APP_SECRET}`);
         const verifyData = await verifyRes.json();
-        if (!verifyData.data?.is_valid || verifyData.data?.user_id !== userID) {
+        if (!verifyData.data?.is_valid) {
             return res.status(401).json({ success: false, error: 'Invalid Facebook token' });
         }
+        const verifiedUserId = verifyData.data.user_id;
 
-        const profileRes = await fetch(`https://graph.facebook.com/${userID}?fields=id,name,email&access_token=${accessToken}`);
+        const profileRes = await fetch(`https://graph.facebook.com/${verifiedUserId}?fields=id,name,email&access_token=${accessToken}`);
         const { id: facebookId, name, email } = await profileRes.json();
         const result = await loginOrCreateSocialCustomer(storeId, { facebookId, email, name, provider: 'facebook' });
         res.json(result);
