@@ -10,6 +10,7 @@ router.get('/store/:subdomain/resolve-delivery/:pincode', async (req, res) => {
     const pool = require('../config/database');
     try {
         const { subdomain, pincode } = req.params;
+        const customerAddress = (req.query.address || '').toLowerCase().trim();
 
         // Get store config
         const result = await pool.query(
@@ -43,6 +44,12 @@ router.get('/store/:subdomain/resolve-delivery/:pincode', async (req, res) => {
             for (const zone of (address.zones || [])) {
                 if (!zone.pincode || !zone.pincode.trim()) continue; // skip empty zones
                 if (pincode.startsWith(zone.pincode)) {
+                    const areaName = (zone.area || '').trim();
+                    // If zone has an area name, customer address must contain it
+                    if (areaName) {
+                        const areaMatch = customerAddress.includes(areaName.toLowerCase());
+                        if (!areaMatch) continue; // pincode matches but area doesn't — keep looking
+                    }
                     return res.json({
                         success: true,
                         data: {
@@ -51,7 +58,8 @@ router.get('/store/:subdomain/resolve-delivery/:pincode', async (req, res) => {
                             storeAddressName: address.storeAddressName,
                             deliveryZone: zone.area,
                             deliveryCost: zone.deliveryCost || 0,
-                            flatRate: false
+                            flatRate: false,
+                            areaRestricted: !!areaName
                         }
                     });
                 }

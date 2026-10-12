@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const XLSX = require('xlsx');
+const multer = require('multer');
 
 const syncInventory = async (storeId) => {
     const storeResult = await pool.query('SELECT config FROM stores WHERE id = $1', [storeId]);
@@ -355,32 +356,34 @@ const downloadTallyCSV = async (req, res) => {
         const hsnCode = config?.cart?.hsnCode || '';
         const gstRate = config?.cart?.gstRate || 0;
         const tallyStockGroup = config?.cart?.tallyStockGroup || 'Trading Goods';
-        const categoryOrder = (config?.products?.categories || []).map((c, idx) => ({ name: c.name?.toLowerCase(), idx }));
 
         const result = await pool.query(`
-            SELECT inv.*, COALESCE(s.total_sold,0) AS total_sold, COALESCE(r.total_returned,0) AS total_returned,
+            SELECT inv.*,
+                COALESCE(s.total_sold,0) AS total_sold,
+                COALESCE(r.total_returned,0) AS total_returned,
                 (inv.stock_quantity - COALESCE(s.total_sold,0) + COALESCE(r.total_returned,0)) AS current_stock
             FROM inventory inv
-            LEFT JOIN (SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
-                item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_sold
+            LEFT JOIN (
+                SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
+                    item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_sold
                 FROM orders o, jsonb_array_elements(o.items::jsonb) AS item
                 WHERE o.store_id=$1 AND (
                     (o.order_type = 'dine_in' AND o.status IN ('confirmed','processing','delivered'))
                     OR (o.order_type = 'delivery' AND o.status = 'delivered')
                     OR (o.order_type IS NULL AND o.status = 'delivered')
                 )
-                GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId') s
-                ON inv.store_id=s.store_id AND inv.product_id=s.product_id AND inv.variation_id=s.variation_id AND inv.size_id=s.size_id
-            LEFT JOIN (SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
-                item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_returned
+                GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId'
+            ) s ON inv.store_id=s.store_id AND inv.product_id=s.product_id AND inv.variation_id=s.variation_id AND inv.size_id=s.size_id
+            LEFT JOIN (
+                SELECT store_id, item->>'productId' AS product_id, item->>'variationId' AS variation_id,
+                    item->>'sizeId' AS size_id, SUM((item->>'quantity')::INTEGER) AS total_returned
                 FROM orders o, jsonb_array_elements(o.items::jsonb) AS item
                 WHERE o.store_id=$1 AND o.status='returned'
-                GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId') r
-                ON inv.store_id=r.store_id AND inv.product_id=r.product_id AND inv.variation_id=r.variation_id AND inv.size_id=r.size_id
+                GROUP BY store_id, item->>'productId', item->>'variationId', item->>'sizeId'
+            ) r ON inv.store_id=r.store_id AND inv.product_id=r.product_id AND inv.variation_id=r.variation_id AND inv.size_id=r.size_id
             WHERE inv.store_id=$1 AND inv.is_archived=FALSE
         `, [storeId]);
 
-        // Build full order map: category → product → variation → size
         const orderMap = {};
         (config?.products?.categories || []).forEach((cat, catIdx) => {
             (cat.products || []).forEach((prod, prodIdx) => {
@@ -391,43 +394,85 @@ const downloadTallyCSV = async (req, res) => {
                 });
             });
         });
-
-        const sortedRows = result.rows.sort((a, b) => {
-            const aOrder = orderMap[String(a.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
-            const bOrder = orderMap[String(b.size_id)] || { catIdx: 999, prodIdx: 999, variIdx: 999, szIdx: 999 };
-            if (aOrder.catIdx !== bOrder.catIdx) return aOrder.catIdx - bOrder.catIdx;
-            if (aOrder.prodIdx !== bOrder.prodIdx) return aOrder.prodIdx - bOrder.prodIdx;
-            if (aOrder.variIdx !== bOrder.variIdx) return aOrder.variIdx - bOrder.variIdx;
-            return aOrder.szIdx - bOrder.szIdx;
+        result.rows.sort((a, b) => {
+            const aO = orderMap[String(a.size_id)] || { catIdx:999, prodIdx:999, variIdx:999, szIdx:999 };
+            const bO = orderMap[String(b.size_id)] || { catIdx:999, prodIdx:999, variIdx:999, szIdx:999 };
+            if (aO.catIdx !== bO.catIdx) return aO.catIdx - bO.catIdx;
+            if (aO.prodIdx !== bO.prodIdx) return aO.prodIdx - bO.prodIdx;
+            if (aO.variIdx !== bO.variIdx) return aO.variIdx - bO.variIdx;
+            return aO.szIdx - bO.szIdx;
         });
 
-        const headers = ['Item Name','Stock Group','HSN/SAC Code','Unit of Measure','GST Rate (%)','Opening Qty','Opening Rate (Rs.)','Opening Value (Rs.)'];
+        const headers = ['Item Name','Stock Group','HSN/SAC Code','Unit of Measure','GST Rate (%)','Stock In','Stock Out','Closing Balance','Rate (Rs.)','Total Value (Rs.)'];
 
-        const rows = sortedRows.map(r => {
+        const rows = result.rows.map(r => {
             const sizeLabel = r.size_label || '';
             const sizeMatch = sizeLabel.match(/^([\d.]+)\s*(.*)$/);
             const unit = sizeMatch ? sizeMatch[2].trim() : 'Nos';
-            const itemName = [r.product_name, r.variation_name, sizeLabel].filter(Boolean).join(' - ');
-            const openingQty = parseInt(r.current_stock || 0);
+            const itemName = r.tally_item_name || [r.product_name, r.variation_name, sizeLabel].filter(Boolean).join(' - ');
+            const stockIn = parseInt(r.stock_quantity || 0);
+            const sold = parseInt(r.total_sold || 0);
+            const returned = parseInt(r.total_returned || 0);
+            const stockOut = sold - returned;
+            const closing = stockIn - stockOut;
             const rate = parseFloat(r.price || 0);
-            const openingValue = (openingQty * rate).toFixed(2);
-            return [
-                `"${itemName}"`,
-                `"${tallyStockGroup}"`,
-                hsnCode || '',
-                unit || 'Nos',
-                gstRate,
-                openingQty,
-                rate.toFixed(2),
-                openingValue
-            ];
+            const totalValue = (closing * rate).toFixed(2);
+            return [itemName, tallyStockGroup, hsnCode || '', unit || 'Nos', gstRate, stockIn, stockOut, closing, rate.toFixed(2), totalValue];
         });
 
-        const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="tally-inventory-${storeId}.csv"`);
-        res.send(csv);
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Tally Inventory');
+        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="tally-inventory-${storeId}.xlsx"`);
+        res.send(buf);
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
 
-module.exports = { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory };
+
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+const uploadXLSX = async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        if (!rows.length) return res.status(400).json({ success: false, error: 'Empty file' });
+
+        // Only read Account Name (tally_item_name) and Stock In (stock_quantity)
+        // Match by product_id + variation_id + size_id columns
+        let updated = 0, skipped = 0, errors = [];
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const productId = String(row['product_id'] || '').replace(/^=?"?|"?$/g, '').trim();
+            const variationId = String(row['variation_id'] || '').replace(/^=?"?|"?$/g, '').trim();
+            const sizeId = String(row['size_id'] || '').replace(/^=?"?|"?$/g, '').trim();
+            const accountName = String(row['Account Name'] || '').trim();
+            const stockIn = parseInt(row['Stock In']);
+            if (!productId || !variationId || !sizeId) { skipped++; continue; }
+
+            // Update stock_quantity if provided and valid
+            if (!isNaN(stockIn) && stockIn >= 0) {
+                const r = await pool.query(
+                    'UPDATE inventory SET stock_quantity=$1, updated_at=NOW() WHERE store_id=$2 AND product_id=$3 AND variation_id=$4 AND size_id=$5',
+                    [stockIn, storeId, productId, variationId, sizeId]
+                );
+                if (r.rowCount > 0) updated++; else { errors.push(`Row ${i+2}: SKU not found`); skipped++; continue; }
+            }
+            // Update account name if provided
+            if (accountName) {
+                await pool.query(
+                    'UPDATE inventory SET tally_item_name=$1, updated_at=NOW() WHERE store_id=$2 AND product_id=$3 AND variation_id=$4 AND size_id=$5',
+                    [accountName, storeId, productId, variationId, sizeId]
+                );
+            }
+        }
+        res.json({ success: true, updated, skipped, errors });
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+};
+
+module.exports = { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory, uploadXLSX, multerUpload: upload };
