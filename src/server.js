@@ -210,6 +210,8 @@ app.use('/api/auth/send-otp', authLimiter);
 app.use('/api/auth/verify-otp', authLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', require('./routes/googleAuth.routes'));
+app.use('/api/auth/gmail-notify', require('./routes/gmailAuth.routes'));
+app.use('/api/email-templates', require('./routes/emailTemplates.routes'));
 app.use('/api/auth', require('./routes/facebookAuth.routes'));
 app.use('/api/tenants', tenantRoutes);
 
@@ -247,6 +249,7 @@ app.use('/api/store/:storeId/admin/orders', storeAdminOrdersRoutes);
 app.use('/api/store/:storeId/admin/couriers', storeAdminCouriersRoutes);
 app.use('/api/store/:storeId/admin/returns', storeAdminReturnsRoutes);
 app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
+app.use('/api/store/:storeId/admin', require('./routes/notification.routes'));
 app.use('/api/store-admin/login', storeAdminLimiter);
 app.use('/api/store-admin', storeAdminSessionRoutes);
 app.use('/api/pricing-plans', pricingRoutes);

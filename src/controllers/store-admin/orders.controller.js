@@ -1,3 +1,4 @@
+const { sendOrderEmail } = require('../../utils/sendOrderEmail');
 const pool = require('../../config/database');
 const logger = require('../../config/logger');
 
@@ -180,6 +181,9 @@ class StoreAdminOrdersController {
             );
 
             logger.info(`✅ Order ${orderId} status updated from ${oldStatus} to ${status}`);
+
+            // Fire-and-forget order email notification
+            sendOrderEmail(storeId, orderId, status).catch(() => {});
 
             res.status(200).json({
                 success: true,
