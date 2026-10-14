@@ -328,8 +328,8 @@ const validateQR = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('[QR] validateQR error:', err);
-    res.status(500).json({ valid: false, reason: 'server_error' });
+    console.error('[QR] validateQR error:', err.message, err.stack);
+    res.status(500).json({ valid: false, reason: 'server_error', detail: err.message });
   }
 };
 
