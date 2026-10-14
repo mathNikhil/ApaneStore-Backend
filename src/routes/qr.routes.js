@@ -14,8 +14,8 @@ router.get('/status/:storeId', QRController.getQRStatusPublic);
 // Detailed status with subscription info — store admin dashboard
 router.get('/status-admin/:storeId', authenticate, QRController.getQRStatus);
 
-// Pricing breakdown before payment
-router.get('/pricing/:storeId', authenticate, QRController.getQRPricingForStore);
+// Pricing breakdown before payment — no auth needed, price is public info
+router.get('/pricing/:storeId', QRController.getQRPricingForStore);
 
 // Initiate Cashfree payment for QR activation
 router.post('/initiate-payment', authenticate, QRController.initiateQRPayment);
