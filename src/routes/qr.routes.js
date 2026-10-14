@@ -37,5 +37,7 @@ router.post('/cashfree-webhook', QRController.handleCashfreeWebhook);
 
 router.get('/admin/pricing', authenticateAdmin, QRController.getAdminQRPricing);
 router.put('/admin/pricing', authenticateAdmin, QRController.updateAdminQRPricing);
+router.post('/admin/activate/:storeId', authenticateAdmin, QRController.adminActivateQR);
+router.post('/admin/deactivate/:storeId', authenticateAdmin, QRController.adminDeactivateQR);
 
 module.exports = router;
