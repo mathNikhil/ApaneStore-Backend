@@ -274,7 +274,7 @@ const validateQR = async (req, res) => {
     let invRow = null;
     if (result.variant_id) {
       const invResult = await pool.query(
-        `SELECT product_name, variation_name, size_label, image_url, selling_price, price
+        `SELECT product_name, variation_name, size_label, image_url, price
          FROM inventory
          WHERE store_id = $1 AND product_id = $2 AND variation_id = $3
          LIMIT 1`,
@@ -285,7 +285,7 @@ const validateQR = async (req, res) => {
     // Fallback: query by product_id alone (no variant on token)
     if (!invRow) {
       const invResult = await pool.query(
-        `SELECT product_name, variation_name, size_label, image_url, selling_price, price
+        `SELECT product_name, variation_name, size_label, image_url, price
          FROM inventory
          WHERE store_id = $1 AND product_id = $2
          LIMIT 1`,
@@ -308,7 +308,7 @@ const validateQR = async (req, res) => {
     const sizeNum = sizeMatch ? sizeMatch[1] : sl;
     const sizeUnit = sizeMatch ? sizeMatch[2].trim() : '';
 
-    const displayPrice = result.price || invRow?.selling_price || invRow?.price || product?.price || 0;
+    const displayPrice = result.price || invRow?.price || product?.price || 0;
     const imageUrl = invRow?.image_url || (Array.isArray(product?.images) ? product.images[0] : null) || '';
 
     res.json({
