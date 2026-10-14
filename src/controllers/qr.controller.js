@@ -324,6 +324,8 @@ const validateQR = async (req, res) => {
       valid: true,
       product: {
         id: result.product_id,
+        variant_id: result.variant_id || null,
+        size_id: result.sku || null,
         name: invRow.product_name || 'Product',
         variation_name: invRow.variation_name || '',
         size_label: invRow.size_label || '',
