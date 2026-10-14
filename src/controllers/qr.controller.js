@@ -294,35 +294,29 @@ const validateQR = async (req, res) => {
       invRow = invResult.rows[0] || null;
     }
 
-    // Still need products table for images array + description (inventory only has one image_url)
-    const productResult = await pool.query(
-      'SELECT id, name, images, description FROM products WHERE id = $1 AND store_id = $2',
-      [result.product_id, store_id]
-    );
-    const product = productResult.rows[0];
-    if (!product && !invRow) return res.json({ valid: false, reason: 'product_not_found' });
+    if (!invRow) return res.json({ valid: false, reason: 'product_not_found' });
 
     // Parse size and unit from size_label e.g. "500 ml"
-    const sl = invRow?.size_label || '';
+    const sl = invRow.size_label || '';
     const sizeMatch = sl.match(/^([\d.]+)\s*(.*)$/);
     const sizeNum = sizeMatch ? sizeMatch[1] : sl;
     const sizeUnit = sizeMatch ? sizeMatch[2].trim() : '';
 
-    const displayPrice = result.price || invRow?.price || product?.price || 0;
-    const imageUrl = invRow?.image_url || (Array.isArray(product?.images) ? product.images[0] : null) || '';
+    const displayPrice = result.price || invRow.price || 0;
+    const imageUrl = invRow.image_url || '';
 
     res.json({
       valid: true,
       product: {
-        id: product?.id || result.product_id,
-        name: invRow?.product_name || product?.name || 'Product',
-        variation_name: invRow?.variation_name || '',
-        size_label: invRow?.size_label || '',
+        id: result.product_id,
+        name: invRow.product_name || 'Product',
+        variation_name: invRow.variation_name || '',
+        size_label: invRow.size_label || '',
         size: sizeNum,
         unit: sizeUnit,
         image_url: imageUrl,
-        images: Array.isArray(product?.images) ? product.images : (imageUrl ? [imageUrl] : []),
-        description: product?.description || '',
+        images: imageUrl ? [imageUrl] : [],
+        description: '',
         price: displayPrice,
         scanned_price: displayPrice,
       }
