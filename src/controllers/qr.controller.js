@@ -203,22 +203,22 @@ const handleCashfreeWebhook = async (req, res) => {
 // Generate QR tokens for products. Requires active QR subscription.
 const generateQRCodes = async (req, res) => {
   try {
-    const { store_id, products } = req.body;
-    const tenantId = req.user.id;
+    // storeAdminAuth sets req.storeAdmin.store_id from the URL param
+    const store_id = req.storeAdmin?.store_id || req.params.storeId;
+    const { products } = req.body;
 
     if (!store_id || !products?.length) {
       return res.status(400).json({ error: 'store_id and products[] are required' });
     }
 
-    // Verify ownership
-    const storeResult = await pool.query(
-      'SELECT id FROM stores WHERE id = $1 AND tenant_id = $2', [store_id, tenantId]
+    // Check QR active — look up tenant via store to get mobile for test-user check
+    const tenantResult = await pool.query(
+      'SELECT t.mobile FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
+      [store_id]
     );
-    if (!storeResult.rows[0]) return res.status(403).json({ error: 'Access denied' });
+    if (!tenantResult.rows[0]) return res.status(403).json({ error: 'Store not found' });
 
-    // Check QR active
-    const tenantResult = await pool.query('SELECT mobile FROM tenants WHERE id = $1', [tenantId]);
-    const active = await isQRServiceActive(store_id, tenantResult.rows[0]?.mobile);
+    const active = await isQRServiceActive(store_id, tenantResult.rows[0].mobile);
     if (!active) return res.status(403).json({ error: 'QR service not active for this store' });
 
     // Generate tokens
