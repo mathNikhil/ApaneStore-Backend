@@ -384,8 +384,11 @@ const getAdminQRPricing = async (req, res) => {
 const updateAdminQRPricing = async (req, res) => {
   try {
     const { annual_price, gst_rate_percent } = req.body;
-    if (!annual_price || !gst_rate_percent) {
+    if (annual_price === undefined || annual_price === null || gst_rate_percent === undefined || gst_rate_percent === null) {
       return res.status(400).json({ error: 'annual_price and gst_rate_percent are required' });
+    }
+    if (Number(annual_price) < 0 || Number(gst_rate_percent) < 0) {
+      return res.status(400).json({ error: 'Values cannot be negative' });
     }
 
     const result = await pool.query(
