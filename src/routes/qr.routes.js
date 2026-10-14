@@ -33,6 +33,9 @@ router.post('/validate', QRController.validateQR);
 // Cashfree webhook — no auth, signature verified inside controller
 router.post('/cashfree-webhook', QRController.handleCashfreeWebhook);
 
+// Payment return status check — tenant auth, called from return page
+router.get('/payment-status', authenticate, QRController.getQRPaymentStatus);
+
 // ── Super Admin routes ───────────────────────────────────────────────────────
 
 router.get('/admin/pricing', authenticateAdmin, QRController.getAdminQRPricing);
