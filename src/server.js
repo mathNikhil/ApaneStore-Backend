@@ -33,6 +33,9 @@ const waRoutes          = require('./routes/wa.routes');
 const addonAdminRoutes  = require('./routes/addon.admin.routes');
 const addonPublicRoutes = require('./routes/addon.public.routes');
 
+// ✅ NEW — QR Scanner routes
+const qrRoutes = require('./routes/qr.routes');
+
 // Import database to ensure connection
 require('./config/database');
 
@@ -43,6 +46,22 @@ new CronJob('0 0 * * *', () => {
     subscriptionExpiryService.processExpiredSubscriptions();
 }, null, true, 'Asia/Kolkata');
 console.log('⏰ Subscription expiry cron scheduled (daily midnight IST)');
+
+// QR subscription expiry cron — runs daily at 00:05 IST
+const pool_cron = require('./config/database');
+new CronJob('5 0 * * *', async () => {
+    try {
+        const result = await pool_cron.query(
+            `UPDATE qr_service_subscriptions
+             SET status = 'expired'
+             WHERE status = 'active' AND expires_at < NOW()`
+        );
+        console.log(`⏰ QR expiry cron: expired ${result.rowCount} subscriptions`);
+    } catch (err) {
+        console.error('QR expiry cron error:', err.message);
+    }
+}, null, true, 'Asia/Kolkata');
+console.log('⏰ QR subscription expiry cron scheduled (daily 00:05 IST)');
 
 const app = express();
 
@@ -254,6 +273,9 @@ app.use('/api/store-admin/login', storeAdminLimiter);
 app.use('/api/store-admin', storeAdminSessionRoutes);
 app.use('/api/pricing-plans', pricingRoutes);
 app.use('/api/invoices', invoiceRoutes);
+
+// ✅ NEW — QR Scanner API (all routes under /api/qr)
+app.use('/api/qr', qrRoutes);
 
 // Public endpoint — check if platform payment gateway is enabled
 app.get('/api/public/payment-gateway-status', async (req, res) => {
