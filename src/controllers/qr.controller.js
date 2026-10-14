@@ -269,26 +269,41 @@ const validateQR = async (req, res) => {
     const qrActive = await isQRServiceActive(store_id, storeResult.rows[0].mobile);
     if (!qrActive) return res.json({ valid: false, reason: 'qr_service_expired' });
 
-    // Fetch clean display fields from inventory (has product_name, variation_name, size_label, image_url)
-    // Match on product_id + variation_id — use sku as tiebreaker if present
+    // Fetch clean display fields from inventory
+    // Token has: product_id, variant_id (variation_id), sku (size_id)
     let invRow = null;
-    if (result.variant_id) {
+
+    // Best match: product + variation + size_id (sku field in token = size_id)
+    if (result.variant_id && result.sku) {
+      const invResult = await pool.query(
+        `SELECT product_name, variation_name, size_label, image_url, price
+         FROM inventory
+         WHERE store_id = $1 AND product_id = $2 AND variation_id = $3 AND size_id = $4
+         LIMIT 1`,
+        [store_id, String(result.product_id), String(result.variant_id), String(result.sku)]
+      );
+      invRow = invResult.rows[0] || null;
+    }
+
+    // Fallback: product + variation only (no size_id in token)
+    if (!invRow && result.variant_id) {
       const invResult = await pool.query(
         `SELECT product_name, variation_name, size_label, image_url, price
          FROM inventory
          WHERE store_id = $1 AND product_id = $2 AND variation_id = $3
-         LIMIT 1`,
+         ORDER BY id LIMIT 1`,
         [store_id, String(result.product_id), String(result.variant_id)]
       );
       invRow = invResult.rows[0] || null;
     }
-    // Fallback: query by product_id alone (no variant on token)
+
+    // Last fallback: product only
     if (!invRow) {
       const invResult = await pool.query(
         `SELECT product_name, variation_name, size_label, image_url, price
          FROM inventory
          WHERE store_id = $1 AND product_id = $2
-         LIMIT 1`,
+         ORDER BY id LIMIT 1`,
         [store_id, String(result.product_id)]
       );
       invRow = invResult.rows[0] || null;
