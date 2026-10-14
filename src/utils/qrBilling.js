@@ -48,9 +48,9 @@ const getQRPricing = async () => {
 const calculateQRCharge = async (store_id) => {
   // Get store publish expiry
   const storeResult = await pool.query(
-    `SELECT ss.expires_at as publish_expires_at
+    `SELECT ss.valid_until as publish_expires_at
      FROM stores s
-     JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.status = 'active'
+     JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.payment_status = 'paid'
      WHERE s.id = $1`,
     [store_id]
   );

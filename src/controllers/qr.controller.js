@@ -91,11 +91,11 @@ const initiateQRPayment = async (req, res) => {
     // Test tenants — free, direct activation
     if (isTestTenant(tenant.mobile)) {
       const storeResult = await pool.query(
-        `SELECT ss.expires_at FROM stores s
-         JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.status = 'active'
+        `SELECT ss.valid_until FROM stores s
+         JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.payment_status = 'paid'
          WHERE s.id = $1`, [store_id]
       );
-      const expires_at = storeResult.rows[0]?.expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      const expires_at = storeResult.rows[0]?.valid_until || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
       const remaining_days = Math.ceil((new Date(expires_at) - new Date()) / (1000 * 60 * 60 * 24));
 
       await activateQRService({
@@ -308,9 +308,9 @@ const adminActivateQR = async (req, res) => {
 
     // Get store + tenant + subscription expiry
     const storeResult = await pool.query(
-      `SELECT s.id, s.tenant_id, ss.expires_at as publish_expires_at
+      `SELECT s.id, s.tenant_id, ss.valid_until as publish_expires_at
        FROM stores s
-       JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.status = 'active'
+       JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.payment_status = 'paid'
        WHERE s.id = $1`,
       [storeId]
     );
