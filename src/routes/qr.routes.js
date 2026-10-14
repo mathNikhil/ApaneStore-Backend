@@ -3,6 +3,7 @@ const router = express.Router();
 const QRController = require('../controllers/qr.controller');
 const { authenticate } = require('../middleware/auth');
 const { authenticateAdmin } = require('../middleware/admin.auth');
+const { storeAdminAuth } = require('../middleware/storeAdminAuth');
 
 // ── Public storefront route ───────────────────────────────────────────────────
 
@@ -21,7 +22,8 @@ router.get('/pricing/:storeId', QRController.getQRPricingForStore);
 router.post('/initiate-payment', authenticate, QRController.initiateQRPayment);
 
 // Generate QR tokens for product list (inventory print)
-router.post('/generate', authenticate, QRController.generateQRCodes);
+// Uses storeAdminAuth — store admin session token, not tenant JWT
+router.post('/generate/:storeId', storeAdminAuth, QRController.generateQRCodes);
 
 // ── Public / Storefront routes ───────────────────────────────────────────────
 
