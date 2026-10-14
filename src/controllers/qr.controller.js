@@ -300,6 +300,74 @@ const validateQR = async (req, res) => {
   }
 };
 
+// ─── POST /api/qr/admin/activate/:storeId ────────────────────────────────────
+// Super admin — force-activate QR for a store (free, no payment, tied to store sub expiry)
+const adminActivateQR = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    // Get store + tenant + subscription expiry
+    const storeResult = await pool.query(
+      `SELECT s.id, s.tenant_id, ss.expires_at as publish_expires_at
+       FROM stores s
+       JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.status = 'active'
+       WHERE s.id = $1`,
+      [storeId]
+    );
+
+    if (!storeResult.rows[0]) {
+      return res.status(400).json({ error: 'Store has no active subscription — publish the store first' });
+    }
+
+    const { tenant_id, publish_expires_at } = storeResult.rows[0];
+    const expires_at = publish_expires_at;
+    const remaining_days = Math.max(1, Math.ceil((new Date(expires_at) - new Date()) / (1000 * 60 * 60 * 24)));
+
+    // Deactivate any existing QR subscription first
+    await pool.query(
+      `UPDATE qr_service_subscriptions SET status = 'cancelled' WHERE store_id = $1 AND status = 'active'`,
+      [storeId]
+    );
+
+    // Activate
+    await activateQRService({
+      store_id: storeId,
+      tenant_id,
+      days_charged: remaining_days,
+      amount_charged: 0,
+      gst_charged: 0,
+      payment_ref: 'ADMIN_GRANTED',
+      cashfree_order_id: null,
+      expires_at
+    });
+
+    console.log(`[QR Admin] Activated QR for store ${storeId} by super admin`);
+    res.json({ success: true, active: true, expires_at });
+  } catch (err) {
+    console.error('[QR Admin] adminActivateQR error:', err);
+    res.status(500).json({ error: err.message || 'Failed to activate QR' });
+  }
+};
+
+// ─── POST /api/qr/admin/deactivate/:storeId ──────────────────────────────────
+// Super admin — force-deactivate QR for a store
+const adminDeactivateQR = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    await pool.query(
+      `UPDATE qr_service_subscriptions SET status = 'cancelled' WHERE store_id = $1 AND status = 'active'`,
+      [storeId]
+    );
+
+    console.log(`[QR Admin] Deactivated QR for store ${storeId} by super admin`);
+    res.json({ success: true, active: false });
+  } catch (err) {
+    console.error('[QR Admin] adminDeactivateQR error:', err);
+    res.status(500).json({ error: 'Failed to deactivate QR' });
+  }
+};
+
 // ─── GET /api/qr/admin/pricing ───────────────────────────────────────────────
 // Super admin — get current QR pricing config
 const getAdminQRPricing = async (req, res) => {
@@ -343,5 +411,7 @@ module.exports = {
   generateQRCodes,
   validateQR,
   getAdminQRPricing,
-  updateAdminQRPricing
+  updateAdminQRPricing,
+  adminActivateQR,
+  adminDeactivateQR
 };
