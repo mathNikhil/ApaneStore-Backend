@@ -402,6 +402,32 @@ const updateAdminQRPricing = async (req, res) => {
   }
 };
 
+// ─── GET /api/qr/payment-status ──────────────────────────────────────────────
+// Called from QRPaymentReturn page after Cashfree redirect — checks if QR is now active
+const getQRPaymentStatus = async (req, res) => {
+  try {
+    const { order_id } = req.query;
+    if (!order_id) return res.status(400).json({ active: false, error: 'order_id required' });
+
+    const result = await pool.query(
+      'SELECT store_id, status FROM pending_payments WHERE order_id = $1',
+      [order_id]
+    );
+    const payment = result.rows[0];
+    if (!payment) return res.json({ active: false });
+
+    if (payment.status === 'completed') {
+      const sub = await getActiveQRSubscription(payment.store_id);
+      return res.json({ active: !!sub });
+    }
+
+    res.json({ active: false });
+  } catch (err) {
+    console.error('[QR] getQRPaymentStatus error:', err);
+    res.status(500).json({ active: false });
+  }
+};
+
 module.exports = {
   getQRStatusPublic,
   getQRStatus,
@@ -413,5 +439,6 @@ module.exports = {
   getAdminQRPricing,
   updateAdminQRPricing,
   adminActivateQR,
-  adminDeactivateQR
+  adminDeactivateQR,
+  getQRPaymentStatus
 };
