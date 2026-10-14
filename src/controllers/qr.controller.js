@@ -269,29 +269,62 @@ const validateQR = async (req, res) => {
     const qrActive = await isQRServiceActive(store_id, storeResult.rows[0].mobile);
     if (!qrActive) return res.json({ valid: false, reason: 'qr_service_expired' });
 
-    // Fetch product details
+    // Fetch clean display fields from inventory (has product_name, variation_name, size_label, image_url)
+    // Match on product_id + variation_id — use sku as tiebreaker if present
+    let invRow = null;
+    if (result.variant_id) {
+      const invResult = await pool.query(
+        `SELECT product_name, variation_name, size_label, image_url, selling_price, price
+         FROM inventory
+         WHERE store_id = $1 AND product_id = $2 AND variation_id = $3
+         LIMIT 1`,
+        [store_id, String(result.product_id), String(result.variant_id)]
+      );
+      invRow = invResult.rows[0] || null;
+    }
+    // Fallback: query by product_id alone (no variant on token)
+    if (!invRow) {
+      const invResult = await pool.query(
+        `SELECT product_name, variation_name, size_label, image_url, selling_price, price
+         FROM inventory
+         WHERE store_id = $1 AND product_id = $2
+         LIMIT 1`,
+        [store_id, String(result.product_id)]
+      );
+      invRow = invResult.rows[0] || null;
+    }
+
+    // Still need products table for images array + description (inventory only has one image_url)
     const productResult = await pool.query(
-      'SELECT id, name, price, images, description FROM products WHERE id = $1 AND store_id = $2',
+      'SELECT id, name, images, description FROM products WHERE id = $1 AND store_id = $2',
       [result.product_id, store_id]
     );
     const product = productResult.rows[0];
-    if (!product) return res.json({ valid: false, reason: 'product_not_found' });
+    if (!product && !invRow) return res.json({ valid: false, reason: 'product_not_found' });
 
-    // Fetch variant if applicable
-    let variant = null;
-    if (result.variant_id) {
-      const variantResult = await pool.query(
-        'SELECT * FROM product_variants WHERE id = $1', [result.variant_id]
-      );
-      variant = variantResult.rows[0] || null;
-    }
+    // Parse size and unit from size_label e.g. "500 ml"
+    const sl = invRow?.size_label || '';
+    const sizeMatch = sl.match(/^([\d.]+)\s*(.*)$/);
+    const sizeNum = sizeMatch ? sizeMatch[1] : sl;
+    const sizeUnit = sizeMatch ? sizeMatch[2].trim() : '';
+
+    const displayPrice = result.price || invRow?.selling_price || invRow?.price || product?.price || 0;
+    const imageUrl = invRow?.image_url || (Array.isArray(product?.images) ? product.images[0] : null) || '';
 
     res.json({
       valid: true,
       product: {
-        ...product,
-        variant,
-        scanned_price: result.price
+        id: product?.id || result.product_id,
+        name: invRow?.product_name || product?.name || 'Product',
+        variation_name: invRow?.variation_name || '',
+        size_label: invRow?.size_label || '',
+        size: sizeNum,
+        unit: sizeUnit,
+        image_url: imageUrl,
+        images: Array.isArray(product?.images) ? product.images : (imageUrl ? [imageUrl] : []),
+        description: product?.description || '',
+        price: displayPrice,
+        scanned_price: displayPrice,
       }
     });
   } catch (err) {
