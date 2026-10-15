@@ -107,7 +107,7 @@ const initiateQRPayment = async (req, res) => {
     if (!store_id) return res.status(400).json({ error: 'store_id is required' });
 
     // Get tenant info
-    const tenantResult = await pool.query('SELECT mobile, email, name FROM tenants WHERE id = $1', [tenantId]);
+    const tenantResult = await pool.query('SELECT mobile, email, company_name FROM tenants WHERE id = $1', [tenantId]);
     const tenant = tenantResult.rows[0];
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
@@ -152,7 +152,7 @@ const initiateQRPayment = async (req, res) => {
       orderId,
       amount: charge.total,
       currency: 'INR',
-      customerName: tenant.name || 'Store Owner',
+      customerName: tenant.company_name || 'Store Owner',
       customerEmail: tenant.email || '',
       customerPhone: tenant.mobile,
       returnUrl: `${process.env.FRONTEND_URL}/qr-payment-return?order_id=${orderId}`
