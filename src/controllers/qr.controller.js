@@ -92,7 +92,7 @@ const getQRPricingForStore = async (req, res) => {
     const charge = await calculateQRCharge(storeId);
     res.json(charge);
   } catch (err) {
-    console.error('[QR] getQRPricing error:', err);
+    console.error('[QR] getQRPricing error:', err.message, err.stack);
     res.status(400).json({ error: err.message });
   }
 };
