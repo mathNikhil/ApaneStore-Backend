@@ -106,8 +106,13 @@ const initiateQRPayment = async (req, res) => {
 
     if (!store_id) return res.status(400).json({ error: 'store_id is required' });
 
-    // Get tenant info
-    const tenantResult = await pool.query('SELECT mobile, email, company_name FROM tenants WHERE id = $1', [tenantId]);
+    // Get tenant info — join via store to get mobile (proven to work for test-tenant detection)
+    const tenantResult = await pool.query(
+      `SELECT t.mobile, t.email, t.company_name
+       FROM stores s JOIN tenants t ON t.id = s.tenant_id
+       WHERE s.id = $1`,
+      [store_id]
+    );
     const tenant = tenantResult.rows[0];
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
@@ -155,7 +160,7 @@ const initiateQRPayment = async (req, res) => {
       customerName: tenant.company_name || 'Store Owner',
       customerEmail: tenant.email || '',
       customerPhone: tenant.mobile,
-      returnUrl: `${process.env.FRONTEND_URL}/qr-payment-return?order_id=${orderId}`
+      returnUrl: `${process.env.FRONTEND_URL || 'https://dashboard.aapnaestore.com'}/qr-payment-return?order_id=${orderId}`
     });
 
     // Store pending payment record
