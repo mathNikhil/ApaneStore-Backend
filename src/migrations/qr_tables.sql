@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS pending_payments (
 ALTER TABLE pending_payments ADD COLUMN IF NOT EXISTS payment_type VARCHAR(64) NOT NULL DEFAULT 'plan';
 ALTER TABLE pending_payments ADD COLUMN IF NOT EXISTS store_id     VARCHAR(64);
 ALTER TABLE pending_payments ADD COLUMN IF NOT EXISTS meta         JSONB;
+ALTER TABLE pending_payments ADD COLUMN IF NOT EXISTS amount       NUMERIC(10,2) NOT NULL DEFAULT 0;
 
 -- 4. Extend orders table for walk-in customer capture
 ALTER TABLE orders
