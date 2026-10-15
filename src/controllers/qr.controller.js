@@ -69,6 +69,26 @@ const getQRPricingForStore = async (req, res) => {
     if (!storeId || storeId === 'undefined') {
       return res.status(400).json({ error: 'Invalid store ID' });
     }
+
+    // Test tenants get QR free — return a zero-charge response
+    const tenantResult = await pool.query(
+      'SELECT t.mobile FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
+      [storeId]
+    );
+    if (tenantResult.rows[0] && isTestTenant(tenantResult.rows[0].mobile)) {
+      return res.json({
+        is_test_user: true,
+        annual_price: 0,
+        remaining_days: 365,
+        base_charge: 0,
+        gst_rate: 0,
+        gst_amount: 0,
+        total: 0,
+        currency: 'INR',
+        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+      });
+    }
+
     const charge = await calculateQRCharge(storeId);
     res.json(charge);
   } catch (err) {
