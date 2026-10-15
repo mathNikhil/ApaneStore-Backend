@@ -36,7 +36,7 @@ const getQRStatusPublic = async (req, res) => {
 const getQRStatus = async (req, res) => {
   try {
     const { storeId } = req.params;
-    const tenantId = req.user.id;
+    const tenantId = req.tenant.id;
 
     // Get tenant mobile to check test user
     const tenantResult = await pool.query('SELECT mobile FROM tenants WHERE id = $1', [tenantId]);
@@ -102,7 +102,7 @@ const getQRPricingForStore = async (req, res) => {
 const initiateQRPayment = async (req, res) => {
   try {
     const { store_id } = req.body;
-    const tenantId = req.user.id;
+    const tenantId = req.tenant.id;
 
     if (!store_id) return res.status(400).json({ error: 'store_id is required' });
 
