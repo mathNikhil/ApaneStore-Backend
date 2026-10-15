@@ -66,6 +66,9 @@ const getQRStatus = async (req, res) => {
 const getQRPricingForStore = async (req, res) => {
   try {
     const { storeId } = req.params;
+    if (!storeId || storeId === 'undefined') {
+      return res.status(400).json({ error: 'Invalid store ID' });
+    }
     const charge = await calculateQRCharge(storeId);
     res.json(charge);
   } catch (err) {
