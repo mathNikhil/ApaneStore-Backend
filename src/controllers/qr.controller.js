@@ -134,6 +134,18 @@ const initiateQRPayment = async (req, res) => {
     // Calculate charge
     const charge = await calculateQRCharge(store_id);
 
+    // Trial stores — free, direct activation (QR tied to trial expiry)
+    if (charge.is_trial) {
+      await activateQRService({
+        store_id, tenant_id: tenantId,
+        days_charged: charge.remaining_days,
+        amount_charged: 0, gst_charged: 0,
+        payment_ref: 'TRIAL_FREE', cashfree_order_id: null,
+        expires_at: charge.expires_at
+      });
+      return res.json({ success: true, is_trial: true, active: true });
+    }
+
     // Create Cashfree order
     const orderId = `QR_${store_id}_${Date.now()}`;
     const paymentOrder = await paymentGatewayService.createOrder({

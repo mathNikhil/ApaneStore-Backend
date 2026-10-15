@@ -42,39 +42,62 @@ const getQRPricing = async () => {
 
 /**
  * Calculate prorata charge for QR activation.
- * Charge = (annual_price / 365) × remaining_days + GST
+ * Charge = (annual_price / 365) x remaining_days + GST
  * Linked to the store's publish expiry date.
+ * Trial stores get QR free for the trial duration.
  */
 const calculateQRCharge = async (store_id) => {
-  // Get store publish expiry
+  // Get active store subscription — paid OR trial, not expired
   const storeResult = await pool.query(
-    `SELECT ss.valid_until as publish_expires_at
+    `SELECT ss.valid_until as publish_expires_at, ss.is_trial
      FROM stores s
-     JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.payment_status = 'paid'
-     WHERE s.id = $1`,
+     JOIN store_subscriptions ss ON ss.store_id = s.id
+     WHERE s.id = $1
+       AND ss.payment_status = 'paid'
+       AND ss.valid_until > NOW()
+     ORDER BY ss.valid_until DESC
+     LIMIT 1`,
     [store_id]
   );
 
   if (!storeResult.rows[0]) {
-    throw new Error('Store has no active subscription — must be published first');
+    throw new Error('Store has no active subscription. Please publish your store first.');
   }
 
-  const pricing = await getQRPricing();
-  const { annual_price, gst_rate_percent } = pricing;
-
+  const { publish_expires_at, is_trial } = storeResult.rows[0];
   const today = new Date();
-  const expiry = new Date(storeResult.rows[0].publish_expires_at);
+  const expiry = new Date(publish_expires_at);
   const remaining_days = Math.max(0, Math.ceil((expiry - today) / (1000 * 60 * 60 * 24)));
 
   if (remaining_days === 0) {
-    throw new Error('Store subscription has expired — renew store first');
+    throw new Error('Store subscription has expired. Please renew your store first.');
   }
+
+  // Trial stores get QR free for the trial duration
+  if (is_trial) {
+    return {
+      is_trial: true,
+      annual_price: 0,
+      remaining_days,
+      base_charge: 0,
+      gst_rate: 0,
+      gst_amount: 0,
+      total: 0,
+      currency: 'INR',
+      expires_at: publish_expires_at
+    };
+  }
+
+  // Paid stores — prorated charge
+  const pricing = await getQRPricing();
+  const { annual_price, gst_rate_percent } = pricing;
 
   const base_charge = Math.round((annual_price / 365) * remaining_days * 100) / 100;
   const gst_amount = Math.round(base_charge * (gst_rate_percent / 100) * 100) / 100;
   const total = Math.round((base_charge + gst_amount) * 100) / 100;
 
   return {
+    is_trial: false,
     annual_price: Number(annual_price),
     remaining_days,
     base_charge,
@@ -82,13 +105,13 @@ const calculateQRCharge = async (store_id) => {
     gst_amount,
     total,
     currency: 'INR',
-    expires_at: storeResult.rows[0].publish_expires_at
+    expires_at: publish_expires_at
   };
 };
 
 /**
  * Activate QR service for a store after successful payment.
- * For test tenants — called directly without payment.
+ * For test tenants and trial stores — called directly without payment.
  */
 const activateQRService = async ({ store_id, tenant_id, days_charged, amount_charged, gst_charged, payment_ref, cashfree_order_id, expires_at }) => {
   const result = await pool.query(
