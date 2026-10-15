@@ -18,12 +18,12 @@ const getQRStatusPublic = async (req, res) => {
 
     // Get tenant mobile via store
     const storeResult = await pool.query(
-      'SELECT t.mobile FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
+      'SELECT t.phone FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
       [storeId]
     );
     if (!storeResult.rows[0]) return res.json({ active: false });
 
-    const active = await isQRServiceActive(storeId, storeResult.rows[0].mobile);
+    const active = await isQRServiceActive(storeId, storeResult.rows[0].phone);
     res.json({ active });
   } catch (err) {
     console.error('[QR] getQRStatusPublic error:', err);
@@ -39,11 +39,11 @@ const getQRStatus = async (req, res) => {
     const tenantId = req.tenant.id;
 
     // Get tenant mobile to check test user
-    const tenantResult = await pool.query('SELECT mobile FROM tenants WHERE id = $1', [tenantId]);
+    const tenantResult = await pool.query('SELECT phone FROM tenants WHERE id = $1', [tenantId]);
     const tenant = tenantResult.rows[0];
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
-    const isFreeTestUser = isTestTenant(tenant.mobile);
+    const isFreeTestUser = isTestTenant(tenant.phone);
 
     if (isFreeTestUser) {
       return res.json({ active: true, is_test_user: true, subscription: null });
@@ -72,10 +72,10 @@ const getQRPricingForStore = async (req, res) => {
 
     // Test tenants get QR free — return a zero-charge response
     const tenantResult = await pool.query(
-      'SELECT t.mobile FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
+      'SELECT t.phone FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
       [storeId]
     );
-    if (tenantResult.rows[0] && isTestTenant(tenantResult.rows[0].mobile)) {
+    if (tenantResult.rows[0] && isTestTenant(tenantResult.rows[0].phone)) {
       return res.json({
         is_test_user: true,
         annual_price: 0,
@@ -106,9 +106,9 @@ const initiateQRPayment = async (req, res) => {
 
     if (!store_id) return res.status(400).json({ error: 'store_id is required' });
 
-    // Get tenant info — join via store to get mobile (proven to work for test-tenant detection)
+    // Get tenant info — join via store; use phone (mobile column is empty)
     const tenantResult = await pool.query(
-      `SELECT t.mobile, t.email, t.company_name
+      `SELECT t.phone, t.email, t.company_name
        FROM stores s JOIN tenants t ON t.id = s.tenant_id
        WHERE s.id = $1`,
       [store_id]
@@ -117,7 +117,7 @@ const initiateQRPayment = async (req, res) => {
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
     // Test tenants — free, direct activation
-    if (isTestTenant(tenant.mobile)) {
+    if (isTestTenant(tenant.phone)) {
       const storeResult = await pool.query(
         `SELECT ss.valid_until FROM stores s
          JOIN store_subscriptions ss ON ss.store_id = s.id AND ss.payment_status = 'paid'
@@ -159,7 +159,7 @@ const initiateQRPayment = async (req, res) => {
       currency: 'INR',
       customerName: tenant.company_name || 'Store Owner',
       customerEmail: tenant.email || '',
-      customerPhone: tenant.mobile,
+      customerPhone: tenant.phone,
       returnUrl: `${process.env.FRONTEND_URL || 'https://dashboard.aapnaestore.com'}/qr-payment-return?order_id=${orderId}`
     });
 
@@ -253,12 +253,12 @@ const generateQRCodes = async (req, res) => {
 
     // Check QR active — look up tenant via store to get mobile for test-user check
     const tenantResult = await pool.query(
-      'SELECT t.mobile FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
+      'SELECT t.phone FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE s.id = $1',
       [store_id]
     );
     if (!tenantResult.rows[0]) return res.status(403).json({ error: 'Store not found' });
 
-    const active = await isQRServiceActive(store_id, tenantResult.rows[0].mobile);
+    const active = await isQRServiceActive(store_id, tenantResult.rows[0].phone);
     if (!active) return res.status(403).json({ error: 'QR service not active for this store' });
 
     // Generate tokens
@@ -300,13 +300,13 @@ const validateQR = async (req, res) => {
 
     // Check QR service is still active for this store
     const storeResult = await pool.query(
-      `SELECT s.id, t.mobile FROM stores s
+      `SELECT s.id, t.phone FROM stores s
        JOIN tenants t ON t.id = s.tenant_id
        WHERE s.id = $1`, [store_id]
     );
     if (!storeResult.rows[0]) return res.json({ valid: false, reason: 'store_not_found' });
 
-    const qrActive = await isQRServiceActive(store_id, storeResult.rows[0].mobile);
+    const qrActive = await isQRServiceActive(store_id, storeResult.rows[0].phone);
     if (!qrActive) return res.json({ valid: false, reason: 'qr_service_expired' });
 
     // Fetch clean display fields from inventory
