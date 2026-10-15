@@ -44,10 +44,10 @@ const createOrder = async ({ orderId, amount, currency = 'INR', customerName, cu
                 order_amount: amount,
                 order_currency: currency,
                 customer_details: {
-                    customer_id: customerPhone,
+                    customer_id: customerPhone || orderId,
                     customer_name: customerName || 'Tenant',
                     customer_email: customerEmail || 'tenant@aapnaestore.com',
-                    customer_phone: customerPhone,
+                    customer_phone: customerPhone || '9999999999',
                 },
                 order_meta: { return_url: returnUrl, notify_url: webhookUrl },
             }),
