@@ -117,6 +117,9 @@ router.post('/google/link-phone', async (req, res) => {
             return res.json({ success: true, linked: false });
         }
     } catch(e) {
+        if (e.code === '23505') {
+            return res.status(400).json({ success: false, error: 'This Google account is already linked to another account.' });
+        }
         res.status(500).json({ success: false, error: e.message });
     }
 });
