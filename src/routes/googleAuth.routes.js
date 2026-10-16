@@ -40,10 +40,8 @@ router.post('/google', async (req, res) => {
         }
 
         if (tenant) {
-            // Update google_id if not set
-            if (!tenant.google_id) {
-                await pool.query('UPDATE tenants SET google_id=$1 WHERE id=$2', [googleId, tenant.id]);
-            }
+            // Always update google_id to keep it current
+            await pool.query('UPDATE tenants SET google_id=$1 WHERE id=$2', [googleId, tenant.id]);
             const token = jwt.sign(
                 { tenantId: tenant.id, email: tenant.email, role: 'tenant' },
                 process.env.JWT_SECRET,
