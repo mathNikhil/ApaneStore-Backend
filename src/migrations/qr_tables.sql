@@ -66,6 +66,11 @@ ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS walk_in_customer_mobile VARCHAR(15),
   ADD COLUMN IF NOT EXISTS is_scan_order           BOOLEAN NOT NULL DEFAULT false;
 
+-- 5. Extend orders table for dine-in guest details
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS dine_in_customer_name   VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS dine_in_customer_mobile VARCHAR(15);
+
 -- ============================================================
 -- ROLLBACK (keep for reference, do not run unless reverting)
 -- ============================================================
