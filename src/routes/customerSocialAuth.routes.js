@@ -13,7 +13,12 @@ const loginOrCreateSocialCustomer = async (storeId, { googleId, facebookId, emai
     let customer = null;
     if (googleId) {
         const r = await pool.query('SELECT * FROM customers WHERE store_id=$1 AND google_id=$2 LIMIT 1', [storeId, googleId]);
-        if (r.rows.length) customer = r.rows[0];
+        if (r.rows.length) {
+            customer = r.rows[0];
+            console.log(`[social-auth] Found customer by google_id: ${customer.id} @ store ${storeId}`);
+        } else {
+            console.log(`[social-auth] No customer found by google_id=${googleId} @ store ${storeId}`);
+        }
     }
     if (!customer && facebookId) {
         const r = await pool.query('SELECT * FROM customers WHERE store_id=$1 AND facebook_id=$2 LIMIT 1', [storeId, facebookId]);
@@ -24,9 +29,12 @@ const loginOrCreateSocialCustomer = async (storeId, { googleId, facebookId, emai
         const r = await pool.query('SELECT * FROM customers WHERE store_id=$1 AND email=$2 LIMIT 1', [storeId, email]);
         if (r.rows.length) {
             customer = r.rows[0];
+            console.log(`[social-auth] Found customer by email: ${customer.id} @ store ${storeId} — linking google_id`);
             // Link social ID to existing customer
             if (googleId && !customer.google_id) await pool.query('UPDATE customers SET google_id=$1, auth_provider=$2 WHERE id=$3', [googleId, provider, customer.id]);
             if (facebookId && !customer.facebook_id) await pool.query('UPDATE customers SET facebook_id=$1, auth_provider=$2 WHERE id=$3', [facebookId, provider, customer.id]);
+        } else {
+            console.log(`[social-auth] No customer found by email=${email} @ store ${storeId} — will need phone`);
         }
     }
 
@@ -39,7 +47,8 @@ const loginOrCreateSocialCustomer = async (storeId, { googleId, facebookId, emai
         return { success: true, isNewCustomer: false, token, customer };
     }
 
-    // 3. New customer — need phone
+    // 3. New customer — need phone to link or register
+    console.log(`[social-auth] Customer not found — sending to phone step. googleId=${googleId}, email=${email}, store=${storeId}`);
     return { success: true, isNewCustomer: true, googleId, facebookId, email, name };
 };
 
@@ -90,16 +99,22 @@ router.post('/auth/social/complete', async (req, res) => {
         if (existing.rows.length > 0) {
             // Phone exists — link social ID
             customer = existing.rows[0];
+            console.log(`[social-complete] Found customer by phone: id=${customer.id}, existing google_id=${customer.google_id}`);
             const updates = [];
             const vals = [];
             let idx = 1;
-            if (googleId && !customer.google_id) { updates.push(`google_id=$${idx++}`); vals.push(googleId); }
-            if (facebookId && !customer.facebook_id) { updates.push(`facebook_id=$${idx++}`); vals.push(facebookId); }
+            // Always update google_id (not just when missing) — ensures re-link works if it was somehow cleared
+            if (googleId) { updates.push(`google_id=$${idx++}`); vals.push(googleId); }
+            if (facebookId) { updates.push(`facebook_id=$${idx++}`); vals.push(facebookId); }
             if (email && !customer.email) { updates.push(`email=$${idx++}`); vals.push(email); }
             if (name && !customer.name) { updates.push(`name=$${idx++}`); vals.push(name); }
             if (updates.length) {
                 vals.push(customer.id);
+                console.log(`[social-complete] Saving to DB: ${updates.join(', ')} for customer ${customer.id}`);
                 await pool.query(`UPDATE customers SET ${updates.join(',')} WHERE id=$${idx}`, vals);
+                console.log(`[social-complete] DB update complete`);
+            } else {
+                console.log(`[social-complete] No updates needed for customer ${customer.id}`);
             }
         } else {
             // Create new customer
