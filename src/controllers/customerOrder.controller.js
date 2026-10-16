@@ -12,7 +12,7 @@ const CustomerOrderController = {
         try {
             const { storeId } = req.params;
             const { customerId, phone } = req.customer;
-            const { items, deliveryAddress, paymentMethod, customerUpiId, subtotal, deliveryCharge, taxAmount, totalAmount, orderType, branchId, branchName, deliveryZone, deliveryCost } = req.body;
+            const { items, deliveryAddress, paymentMethod, customerUpiId, subtotal, deliveryCharge, taxAmount, totalAmount, orderType, branchId, branchName, deliveryZone, deliveryCost, dineInCustomerName, dineInCustomerMobile } = req.body;
 
             if (!items || !Array.isArray(items) || items.length === 0) {
                 return res.status(400).json({ success: false, error: 'Order must include at least one item' });
@@ -39,8 +39,8 @@ const CustomerOrderController = {
                 `INSERT INTO orders
                     (order_id, store_id, customer_id, customer_name, customer_phone, items, delivery_address,
                      subtotal, delivery_charge, tax_amount, total_amount, payment_method, customer_upi_id, status, payment_status, order_type,
-                     branch_id, branch_name, delivery_zone, delivery_cost)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $14 = 'dine_in' THEN 'delivered' ELSE 'pending' END, CASE WHEN $14 = 'dine_in' THEN 'paid' ELSE 'pending' END, $14, $15, $16, $17, $18)
+                     branch_id, branch_name, delivery_zone, delivery_cost, dine_in_customer_name, dine_in_customer_mobile)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $14 = 'dine_in' THEN 'delivered' ELSE 'pending' END, CASE WHEN $14 = 'dine_in' THEN 'paid' ELSE 'pending' END, $14, $15, $16, $17, $18, $19, $20)
                  RETURNING *`,
                 [
                     orderId, storeId, customerId, customer.name || null, customer.phone || phone,
@@ -48,7 +48,9 @@ const CustomerOrderController = {
                     subtotal || 0, deliveryCharge || 0, taxAmount || 0, totalAmount, paymentMethod || null,
                     paymentMethod === 'upi' ? customerUpiId : null,
                     orderType || 'delivery',
-                    branchId || null, branchName || null, deliveryZone || null, deliveryCost || null
+                    branchId || null, branchName || null, deliveryZone || null, deliveryCost || null,
+                    (orderType === 'dine_in' && dineInCustomerName) ? dineInCustomerName.trim() : null,
+                    (orderType === 'dine_in' && dineInCustomerMobile) ? dineInCustomerMobile.trim() : null
                 ]
             );
 
