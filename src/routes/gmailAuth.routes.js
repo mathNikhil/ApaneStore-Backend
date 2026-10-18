@@ -42,10 +42,29 @@ router.get('/callback', async (req, res) => {
             'UPDATE stores SET notification_gmail_email = $1, notification_gmail_refresh_token = $2, notification_gmail_connected_at = NOW() WHERE store_id = $3',
             [gmailEmail, tokens.refresh_token, storeId]
         );
-        res.redirect(FRONTEND + '/dashboard?gmail=connected&email=' + encodeURIComponent(gmailEmail));
+        res.redirect(FRONTEND + '/dashboard?gmail=connected&email=' + encodeURIComponent(gmailEmail) + '&storeId=' + encodeURIComponent(storeId));
     } catch (err) {
         console.error('Gmail OAuth callback error:', err);
         res.redirect(FRONTEND + '/dashboard?gmail=error');
+    }
+});
+
+router.post('/disconnect', async (req, res) => {
+    const { storeId } = req.query;
+    if (!storeId) return res.status(400).json({ success: false, error: 'Missing storeId' });
+    try {
+        await pool.query(
+            `UPDATE stores
+             SET notification_gmail_email = NULL,
+                 notification_gmail_refresh_token = NULL,
+                 notification_gmail_connected_at = NULL
+             WHERE store_id = $1`,
+            [storeId]
+        );
+        res.json({ success: true, message: 'Gmail disconnected' });
+    } catch (err) {
+        console.error('Gmail disconnect error:', err);
+        res.status(500).json({ success: false, error: 'Failed to disconnect Gmail' });
     }
 });
 

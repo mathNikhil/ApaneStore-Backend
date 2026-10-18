@@ -111,9 +111,12 @@ router.get('/:storeId', authenticate, async (req, res) => {
 });
 
 router.put('/:storeId/:statusKey', authenticate, async (req, res) => {
-    const { storeId, statusKey } = req.params;
+    const { storeId: storeIdParam, statusKey } = req.params;
     const { subject, body, is_active } = req.body;
     if (!DEFAULT_TEMPLATES[statusKey]) return res.status(400).json({ error: 'Invalid status key' });
+    const storeRow = await pool.query('SELECT id FROM stores WHERE store_id = $1', [storeIdParam]);
+    if (!storeRow.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+    const storeId = storeRow.rows[0].id;
     try {
         await pool.query(
             `INSERT INTO store_email_templates (store_id, status_key, subject, body, is_active)

@@ -307,7 +307,8 @@ class StoreController {
             const tenantId = req.tenantId;
 
             const result = await pool.query(
-                `SELECT id, store_id, store_name, subdomain, status, config, last_builder_step, store_type, created_at, updated_at, published_at
+                `SELECT id, store_id, store_name, subdomain, status, config, last_builder_step, store_type, created_at, updated_at, published_at,
+                        notification_gmail_email AS notify_email
                  FROM stores
                  WHERE tenant_id = $1
                  ORDER BY created_at DESC`,
@@ -334,7 +335,8 @@ class StoreController {
             const tenantId = req.tenantId;
 
             const result = await pool.query(
-                `SELECT id, tenant_id, store_id, store_name, subdomain, status, config, last_builder_step, store_type, created_at, updated_at, published_at
+                `SELECT id, tenant_id, store_id, store_name, subdomain, status, config, last_builder_step, store_type, created_at, updated_at, published_at,
+                        notification_gmail_email AS notify_email
                  FROM stores
                  WHERE id = $1 AND tenant_id = $2`,
                 [id, tenantId]
