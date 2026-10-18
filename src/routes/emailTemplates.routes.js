@@ -79,10 +79,8 @@ Regards,
 };
 
 router.get('/:storeId', authenticate, async (req, res) => {
-    const { storeId: storeIdParam } = req.params;
-    const storeRow = await pool.query('SELECT id FROM stores WHERE store_id = $1', [storeIdParam]);
-    if (!storeRow.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
-    const storeId = storeRow.rows[0].id;
+    const storeId = parseInt(req.params.storeId, 10);
+    if (isNaN(storeId)) return res.status(400).json({ success: false, error: 'Invalid storeId' });
     try {
         const result = await pool.query(
             'SELECT status_key, subject, body, is_active FROM store_email_templates WHERE store_id = $1',
@@ -111,12 +109,11 @@ router.get('/:storeId', authenticate, async (req, res) => {
 });
 
 router.put('/:storeId/:statusKey', authenticate, async (req, res) => {
-    const { storeId: storeIdParam, statusKey } = req.params;
+    const { statusKey } = req.params;
+    const storeId = parseInt(req.params.storeId, 10);
     const { subject, body, is_active } = req.body;
+    if (isNaN(storeId)) return res.status(400).json({ error: 'Invalid storeId' });
     if (!DEFAULT_TEMPLATES[statusKey]) return res.status(400).json({ error: 'Invalid status key' });
-    const storeRow = await pool.query('SELECT id FROM stores WHERE store_id = $1', [storeIdParam]);
-    if (!storeRow.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
-    const storeId = storeRow.rows[0].id;
     try {
         await pool.query(
             `INSERT INTO store_email_templates (store_id, status_key, subject, body, is_active)
@@ -133,10 +130,9 @@ router.put('/:storeId/:statusKey', authenticate, async (req, res) => {
 });
 
 router.delete('/:storeId/:statusKey', authenticate, async (req, res) => {
-    const { storeId: storeIdParam, statusKey } = req.params;
-    const storeRow = await pool.query('SELECT id FROM stores WHERE store_id = $1', [storeIdParam]);
-    if (!storeRow.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
-    const storeId = storeRow.rows[0].id;
+    const { statusKey } = req.params;
+    const storeId = parseInt(req.params.storeId, 10);
+    if (isNaN(storeId)) return res.status(400).json({ success: false, error: 'Invalid storeId' });
     try {
         await pool.query(
             'DELETE FROM store_email_templates WHERE store_id = $1 AND status_key = $2',
