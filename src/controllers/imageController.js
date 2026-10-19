@@ -248,7 +248,6 @@ class ImageController {
             });
         }
     }
-}
 
     // Crop a hero image — receives natural-pixel crop rect, runs Sharp extract, overwrites file
     static async cropHeroImage(req, res) {
