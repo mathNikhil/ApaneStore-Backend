@@ -8,12 +8,14 @@ const IMAGE_REQUIREMENTS = {
         processing: { width: 200, height: 200, fit: 'cover' }
     },
     HERO: {
-        display: { hint: 'Recommended: 1200×400px • Max 3MB • JPG/PNG' },
+        display: { hint: 'Any ratio • Max 3MB • JPG/PNG' },
         validation: {
             maxSize: 3 * 1024 * 1024,
             allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
         },
-        processing: { width: 1920, height: 1080, fit: 'cover' }
+        // fit:'inside' preserves full image — no cropping ever.
+        // Banner adjuster handles all visual framing (focalX/Y, zoom, pan).
+        processing: { width: 2400, height: 2400, fit: 'inside' }
     },
     PRODUCT_MAIN: {
         display: { hint: 'Recommended: 800×800px • Max 2MB • JPG/PNG' },
