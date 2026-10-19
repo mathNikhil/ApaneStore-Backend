@@ -250,4 +250,52 @@ class ImageController {
     }
 }
 
+    // Crop a hero image — receives natural-pixel crop rect, runs Sharp extract, overwrites file
+    static async cropHeroImage(req, res) {
+        try {
+            const { imageId } = req.params;
+            const { cropX, cropY, cropW, cropH } = req.body;
+
+            if ([cropX, cropY, cropW, cropH].some(v => v === undefined || isNaN(Number(v)))) {
+                return res.status(400).json({ success: false, error: 'cropX, cropY, cropW, cropH are required numbers' });
+            }
+            const cx = Math.round(Number(cropX));
+            const cy = Math.round(Number(cropY));
+            const cw = Math.round(Number(cropW));
+            const ch = Math.round(Number(cropH));
+            if (cw < 10 || ch < 10) return res.status(400).json({ success: false, error: 'Crop area too small' });
+
+            const image = await StoreImage.findById(imageId);
+            if (!image) return res.status(404).json({ success: false, error: 'Image not found' });
+
+            const sharp = require('sharp');
+            const path  = require('path');
+            const fs    = require('fs');
+
+            const filePath = path.join(__dirname, '../../', image.storage_path);
+            if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Image file not found on disk' });
+
+            // Read, extract crop region, re-encode to webp
+            const cropped = await sharp(filePath)
+                .extract({ left: cx, top: cy, width: cw, height: ch })
+                .webp({ quality: 90, effort: 4 })
+                .toBuffer();
+
+            await fs.promises.writeFile(filePath, cropped);
+
+            // Update DB dimensions
+            const pool = require('../config/database');
+            await pool.query(
+                'UPDATE store_images SET width = $1, height = $2, file_size = $3 WHERE id = $4',
+                [cw, ch, cropped.length, imageId]
+            );
+
+            return res.json({ success: true, message: 'Image cropped successfully', data: { width: cw, height: ch } });
+        } catch (error) {
+            console.error('cropHeroImage error:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+    }
+}
+
 module.exports = ImageController;
