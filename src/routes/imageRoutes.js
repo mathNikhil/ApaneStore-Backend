@@ -31,6 +31,12 @@ router.post(
     ImageController.uploadImage
 );
 
+// Crop an already-uploaded hero image (destructive — overwrites the stored file)
+router.post(
+    '/:tenantId/:storeId/images/hero/:imageId/crop',
+    ImageController.cropHeroImage
+);
+
 // ==================== PRODUCT IMAGES (STEP 2) ====================
 router.post(
     '/:tenantId/:storeId/images/products/main',
