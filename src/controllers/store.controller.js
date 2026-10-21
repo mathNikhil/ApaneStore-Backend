@@ -161,6 +161,24 @@ class StoreController {
             let finalStoreName = existingStore.store_name;
             let subdomain = existingStore.subdomain;
 
+            // 🔧 Slug drift heal: if the store is not published and the current
+            // subdomain doesn't match what generateSlug would produce for the
+            // existing store name, correct it silently. This fixes cases where
+            // the store was renamed while published (slug frozen), then
+            // unpublished — the slug stays stale until the next save.
+            if (existingStore.status !== 'published') {
+                const expectedSlug = generateSlug(existingStore.store_name);
+                if (expectedSlug !== existingStore.subdomain) {
+                    const slugCheck = await pool.query(
+                        'SELECT id FROM stores WHERE subdomain = $1 AND id != $2',
+                        [expectedSlug, id]
+                    );
+                    if (slugCheck.rows.length === 0) {
+                        subdomain = expectedSlug;
+                    }
+                }
+            }
+
             if (storeName && storeName.trim() !== '' && storeName !== existingStore.store_name) {
                 // Check if this new name is taken by ANOTHER store
                 const duplicateCheck = await pool.query(
