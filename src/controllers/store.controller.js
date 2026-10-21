@@ -177,14 +177,29 @@ class StoreController {
 
                 finalStoreName = storeName;
 
-                // 🔒 Subdomain lock: once a store is published, its
-                // subdomain must not change even if the tenant renames the
-                // store — otherwise a live, already-shared URL would break
-                // silently on a routine content edit. Renaming is still
-                // allowed (finalStoreName updates above); only the
-                // subdomain itself is frozen while live.
-                if (existingStore.status !== 'published') {
-                    subdomain = generateSlug(storeName);
+                // 🔒 Subdomain lock: the subdomain is frozen ONLY while the
+                // store is actively published (live URL is in use). Once a
+                // store is unpublished / back to draft the tenant can freely
+                // rename — regenerate the subdomain from the new name so
+                // the dashboard URL reflects what they called the store.
+                // A re-publish will then use the new slug.
+                if (existingStore.status === 'published') {
+                    // Store is live — keep the existing subdomain so shared
+                    // URLs don't break silently on a content edit.
+                } else {
+                    const newSlug = generateSlug(storeName);
+                    // Check the new slug isn't already taken by another store
+                    const slugCheck = await pool.query(
+                        'SELECT id FROM stores WHERE subdomain = $1 AND id != $2',
+                        [newSlug, id]
+                    );
+                    if (slugCheck.rows.length > 0) {
+                        return res.status(409).json({
+                            success: false,
+                            error: 'A store with a similar name already exists. Please choose a different name.'
+                        });
+                    }
+                    subdomain = newSlug;
                 }
             }
 
