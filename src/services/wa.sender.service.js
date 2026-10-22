@@ -215,4 +215,4 @@ function tryParseJSON(str) {
   try { return JSON.parse(str); } catch { return null; }
 }
 
-module.exports = { dispatchMessage, getTodayCount, resolvePhones, DAILY_LIMIT };
+module.exports = { dispatchMessage, getTodayCount, incrementDailyCount, sendPersonal, resolvePhones, DAILY_LIMIT };

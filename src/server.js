@@ -36,6 +36,9 @@ const addonPublicRoutes = require('./routes/addon.public.routes');
 // ✅ NEW — QR Scanner routes
 const qrRoutes = require('./routes/qr.routes');
 
+// ✅ NEW — Cart recovery routes
+const cartRoutes = require('./routes/cartRoutes');
+
 // Import database to ensure connection
 require('./config/database');
 
@@ -46,6 +49,13 @@ new CronJob('0 0 * * *', () => {
     subscriptionExpiryService.processExpiredSubscriptions();
 }, null, true, 'Asia/Kolkata');
 console.log('⏰ Subscription expiry cron scheduled (daily midnight IST)');
+
+// Cart recovery cron — runs every 30 minutes to check stores' send_time
+const { runCartRecoveryJob } = require('./jobs/cartRecoveryJob');
+new CronJob('*/30 * * * *', () => {
+    runCartRecoveryJob().catch(err => console.error('Cart recovery job error:', err.message));
+}, null, true, 'Asia/Kolkata');
+console.log('⏰ Cart recovery cron scheduled (every 30min IST)');
 
 // QR subscription expiry cron — runs daily at 00:05 IST
 const pool_cron = require('./config/database');
@@ -276,6 +286,9 @@ app.use('/api/invoices', invoiceRoutes);
 
 // ✅ NEW — QR Scanner API (all routes under /api/qr)
 app.use('/api/qr', qrRoutes);
+
+// ✅ NEW — Cart recovery (storefront upsert + dashboard config/stats)
+app.use('/api', cartRoutes);
 
 // Public endpoint — check if platform payment gateway is enabled
 app.get('/api/public/payment-gateway-status', async (req, res) => {
