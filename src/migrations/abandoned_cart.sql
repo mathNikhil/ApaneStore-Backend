@@ -21,6 +21,14 @@ CREATE TABLE IF NOT EXISTS customer_carts (
 
 CREATE INDEX IF NOT EXISTS idx_customer_carts_store
     ON customer_carts(store_id);
+-- Add missing columns if the table was created by an earlier migration
+ALTER TABLE customer_carts ADD COLUMN IF NOT EXISTS order_placed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE customer_carts ADD COLUMN IF NOT EXISTS reminder_index SMALLINT NOT NULL DEFAULT -1;
+ALTER TABLE customer_carts ADD COLUMN IF NOT EXISTS last_reminded_at TIMESTAMPTZ;
+-- Drop old reminder columns from previous session if they exist
+ALTER TABLE customer_carts DROP COLUMN IF EXISTS reminder_sent_at;
+ALTER TABLE customer_carts DROP COLUMN IF EXISTS reminder_batch;
+
 CREATE INDEX IF NOT EXISTS idx_customer_carts_eligible
     ON customer_carts(store_id, order_placed, last_reminded_at)
     WHERE order_placed = FALSE;
