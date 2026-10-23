@@ -36,20 +36,79 @@ router.post('/validate', async (req, res) => {
             return res.status(400).json({ success: false, error: `Minimum order value ₹${coupon.min_order_value} required` });
         }
 
+        // Calculate discount
+        let discount = 0;
+        const val = parseFloat(coupon.value) || 0;
+        const ov = parseFloat(order_value) || 0;
+        if (coupon.unit === 'percent') discount = Math.round(ov * val / 100 * 100) / 100;
+        else discount = Math.min(val, ov);
+
         return res.json({
+            valid: true,
             success: true,
-            data: {
-                id: coupon.id,
-                code: coupon.code,
-                name: coupon.name,
-                unit: coupon.unit,
-                value: coupon.value,
-                scope: coupon.scope
+            discount,
+            message: `₹${discount.toFixed(2)} discount applied`,
+            coupon: {
+                id: coupon.id, code: coupon.code, name: coupon.name,
+                unit: coupon.unit, value: coupon.value, scope: coupon.scope
             }
         });
     } catch (err) {
         console.error('[Storefront Coupons] validate error:', err);
-        return res.status(500).json({ success: false, error: 'Validation failed' });
+        return res.status(500).json({ valid: false, success: false, error: 'Validation failed' });
+    }
+});
+
+// GET /api/store/:storeId/coupons/available
+// Public — lists all active coupons for the store matching the cart
+router.get('/available', async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const { order_value = 0, product_ids = '', category_ids = '' } = req.query;
+        const pids = product_ids ? product_ids.split(',').filter(Boolean) : [];
+        const cids = category_ids ? category_ids.split(',').filter(Boolean) : [];
+
+        // Resolve subdomain → numeric store id if needed
+        let numericStoreId = storeId;
+        if (isNaN(storeId)) {
+            const sr = await pool.query('SELECT id FROM stores WHERE subdomain = $1', [storeId]);
+            if (!sr.rows.length) return res.json({ success: true, coupons: [] });
+            numericStoreId = sr.rows[0].id;
+        }
+
+        const result = await pool.query(
+            `SELECT id, name, type, code, unit, value, min_order_value, scope, scope_items
+             FROM discount_codes
+             WHERE store_id = $1 AND status != 'disabled'
+               AND start_at <= NOW() AND end_at >= NOW()
+               AND (max_uses IS NULL OR current_uses < max_uses)
+             ORDER BY value DESC`,
+            [numericStoreId]
+        );
+
+        const eligible = result.rows.filter(c => {
+            if (c.scope === 'product' && c.scope_items?.length) {
+                const scopePids = c.scope_items.map(k => String(k).split(':')[0]);
+                if (!pids.some(p => scopePids.includes(String(p)))) return false;
+            }
+            if (c.scope === 'category' && c.scope_items?.length) {
+                if (!cids.some(cat => c.scope_items.includes(cat))) return false;
+            }
+            return true;
+        });
+
+        return res.json({
+            success: true,
+            coupons: eligible.map(c => ({
+                id: c.id, code: c.code, name: c.name, type: c.type,
+                unit: c.unit, value: parseFloat(c.value),
+                min_order_value: parseFloat(c.min_order_value) || 0,
+                scope: c.scope,
+            }))
+        });
+    } catch (err) {
+        console.error('[Storefront Coupons] available error:', err);
+        return res.status(500).json({ success: false, coupons: [] });
     }
 });
 

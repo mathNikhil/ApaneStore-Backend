@@ -257,9 +257,19 @@ class CouponsController {
                 if (!valid) return res.status(400).json({ success: false, error: 'This offer is not applicable to your cart items' });
             }
 
+            // Calculate discount amount
+            let discount = 0;
+            const val = parseFloat(coupon.value) || 0;
+            const ov = parseFloat(order_value) || 0;
+            if (coupon.unit === 'percent') discount = Math.round(ov * val / 100 * 100) / 100;
+            else discount = Math.min(val, ov);
+
             return res.json({
+                valid: true,
                 success: true,
-                data: {
+                discount,
+                message: `₹${discount.toFixed(2)} discount applied`,
+                coupon: {
                     id: coupon.id, code: coupon.code, name: coupon.name,
                     unit: coupon.unit, value: coupon.value, buy_x_get_y: coupon.buy_x_get_y,
                     scope: coupon.scope
@@ -267,7 +277,55 @@ class CouponsController {
             });
         } catch (err) {
             console.error('[Coupons] validate error:', err);
-            return res.status(500).json({ success: false, error: 'Validation failed' });
+            return res.status(500).json({ valid: false, success: false, error: 'Validation failed' });
+        }
+    }
+
+    // GET /api/store/:storeId/coupons/available
+    // Public — returns all active coupons eligible for the given cart (no auth needed)
+    static async available(req, res) {
+        try {
+            const { storeId } = req.params;
+            const { order_value = 0, product_ids = '', category_ids = '' } = req.query;
+            const ov = parseFloat(order_value) || 0;
+            const pids = product_ids ? product_ids.split(',').filter(Boolean) : [];
+            const cids = category_ids ? category_ids.split(',').filter(Boolean) : [];
+
+            const result = await pool.query(
+                `SELECT id, name, type, code, unit, value, min_order_value, scope, scope_items
+                 FROM discount_codes
+                 WHERE store_id = $1 AND status != 'disabled'
+                   AND start_at <= NOW() AND end_at >= NOW()
+                   AND (max_uses IS NULL OR current_uses < max_uses)
+                 ORDER BY value DESC`,
+                [storeId]
+            );
+
+            const eligible = result.rows.filter(c => {
+                // Scope check
+                if (c.scope === 'product' && c.scope_items?.length) {
+                    // scope_items now stores pid:vid:sid keys — extract product ids
+                    const scopePids = c.scope_items.map(k => k.split(':')[0]);
+                    if (!pids.some(p => scopePids.includes(String(p)))) return false;
+                }
+                if (c.scope === 'category' && c.scope_items?.length) {
+                    if (!cids.some(cat => c.scope_items.includes(cat))) return false;
+                }
+                return true; // include all (even if min_order not met — frontend shows progress bar)
+            });
+
+            return res.json({
+                success: true,
+                coupons: eligible.map(c => ({
+                    id: c.id, code: c.code, name: c.name, type: c.type,
+                    unit: c.unit, value: parseFloat(c.value),
+                    min_order_value: parseFloat(c.min_order_value) || 0,
+                    scope: c.scope,
+                }))
+            });
+        } catch (err) {
+            console.error('[Coupons] available error:', err);
+            return res.status(500).json({ success: false, coupons: [] });
         }
     }
 }
