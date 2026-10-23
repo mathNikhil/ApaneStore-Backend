@@ -21,7 +21,9 @@ router.post('/validate', async (req, res) => {
         }
 
         const result = await pool.query(
-            'SELECT * FROM discount_codes WHERE store_id = $1 AND code = $2',
+            `SELECT id, code, name, type, unit, value, min_order_value, scope, scope_items,
+                    applicable_to, start_at, end_at, max_uses, current_uses, status
+             FROM discount_codes WHERE store_id = $1 AND code = $2`,
             [parseInt(numericStoreId), code.trim().toUpperCase()]
         );
         if (!result.rows.length) return res.status(404).json({ success: false, error: 'Invalid coupon code' });
@@ -77,6 +79,60 @@ router.post('/validate', async (req, res) => {
     }
 });
 
+// POST /api/store/:storeId/coupons/use
+// Called when an order is placed — atomically increments current_uses.
+// Uses UPDATE ... WHERE current_uses < max_uses to prevent race conditions:
+// if two customers checkout simultaneously only one wins, the other gets 409.
+router.post('/use', async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const { code } = req.body;
+        if (!code) return res.status(400).json({ success: false, error: 'code is required' });
+
+        let numericStoreId = storeId;
+        if (isNaN(storeId)) {
+            const sr = await pool.query('SELECT id FROM stores WHERE subdomain = $1', [storeId]);
+            if (!sr.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+            numericStoreId = sr.rows[0].id;
+        }
+
+        // Re-validate all conditions AND atomically increment in one query.
+        // The WHERE clause is the race-condition guard: if max_uses was just
+        // consumed by another request, current_uses < max_uses fails → 0 rows.
+        const upd = await pool.query(
+            `UPDATE discount_codes
+             SET current_uses = current_uses + 1
+             WHERE store_id = $1 AND code = $2
+               AND status != 'disabled'
+               AND start_at <= NOW() AND end_at >= NOW()
+               AND (max_uses IS NULL OR current_uses < max_uses)
+             RETURNING id, current_uses, max_uses`,
+            [parseInt(numericStoreId), code.trim().toUpperCase()]
+        );
+
+        if (upd.rows.length === 0) {
+            // Either coupon doesn't exist, expired, disabled, or max_uses hit.
+            // Re-read to give a specific error message.
+            const chk = await pool.query(
+                'SELECT status, start_at, end_at, max_uses, current_uses FROM discount_codes WHERE store_id = $1 AND code = $2',
+                [parseInt(numericStoreId), code.trim().toUpperCase()]
+            );
+            if (!chk.rows.length) return res.status(404).json({ success: false, error: 'Coupon not found' });
+            const c = chk.rows[0];
+            const now = new Date();
+            if (c.status === 'disabled') return res.status(409).json({ success: false, error: 'This offer is no longer active' });
+            if (c.end_at && now > new Date(c.end_at)) return res.status(409).json({ success: false, error: 'This offer has expired' });
+            if (c.max_uses !== null && c.current_uses >= c.max_uses) return res.status(409).json({ success: false, error: 'This offer has just run out — someone else checked out at the same time' });
+            return res.status(409).json({ success: false, error: 'This offer is no longer available' });
+        }
+
+        return res.json({ success: true, current_uses: upd.rows[0].current_uses });
+    } catch (err) {
+        console.error('[Storefront Coupons] use error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to register coupon use' });
+    }
+});
+
 // GET /api/store/:storeId/coupons/available
 // Public — lists all active coupons for the store matching the cart
 router.get('/available', async (req, res) => {
@@ -96,7 +152,7 @@ router.get('/available', async (req, res) => {
 
         const result = await pool.query(
             `SELECT id, name, type, code, unit, value, min_order_value, scope, scope_items,
-                    applicable_to, end_at, start_at
+                    applicable_to, end_at, start_at, max_uses, current_uses
              FROM discount_codes
              WHERE store_id = $1 AND status != 'disabled'
                AND start_at <= NOW() AND end_at >= NOW()
@@ -126,7 +182,10 @@ router.get('/available', async (req, res) => {
                 scope: c.scope,
                 scope_items: c.scope_items || [],
                 applicable_to: c.applicable_to || 'both', // 'dine_in', 'delivery', 'both'
-                end_at: c.end_at, // ISO string — client uses to filter expired coupons
+                end_at: c.end_at,   // ISO string — client expiry guard
+                start_at: c.start_at,
+                max_uses: c.max_uses,     // null = unlimited
+                current_uses: c.current_uses,
             }))
         });
     } catch (err) {
