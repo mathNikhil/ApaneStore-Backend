@@ -80,7 +80,7 @@ class CouponsController {
             const {
                 name, type, code: rawCode, unit, value = 0, buy_x_get_y = null,
                 min_order_value = 0, max_uses = null, scope = 'full_store',
-                scope_items = [], start_at, end_at
+                scope_items = [], start_at, end_at, applicable_to = 'both'
             } = req.body;
 
             if (!name || !type || !unit || !start_at || !end_at) {
@@ -109,14 +109,15 @@ class CouponsController {
 
             const result = await pool.query(`
                 INSERT INTO discount_codes
-                (store_id, name, type, code, unit, value, buy_x_get_y, min_order_value, max_uses, scope, scope_items, start_at, end_at, status)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'scheduled')
+                (store_id, name, type, code, unit, value, buy_x_get_y, min_order_value, max_uses, scope, scope_items, start_at, end_at, status, applicable_to)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'scheduled',$14)
                 RETURNING *
             `, [
                 storeId, name, type, code, unit, value,
                 buy_x_get_y ? JSON.stringify(buy_x_get_y) : null,
                 min_order_value, max_uses || null, scope,
-                JSON.stringify(scope_items), start_at, end_at
+                JSON.stringify(scope_items), start_at, end_at,
+                applicable_to
             ]);
 
             const row = { ...result.rows[0], status: computeStatus(result.rows[0]) };
@@ -136,7 +137,7 @@ class CouponsController {
             const { storeId, id } = req.params;
             const {
                 name, unit, value, buy_x_get_y, min_order_value,
-                max_uses, scope, scope_items, start_at, end_at, status
+                max_uses, scope, scope_items, start_at, end_at, status, applicable_to
             } = req.body;
 
             // Fetch existing
@@ -159,8 +160,9 @@ class CouponsController {
                     scope_items     = $8,
                     start_at        = $9,
                     end_at          = $10,
-                    status          = $11
-                WHERE id = $12 AND store_id = $13
+                    status          = $11,
+                    applicable_to   = $12
+                WHERE id = $13 AND store_id = $14
                 RETURNING *
             `, [
                 name          ?? r.name,
@@ -174,6 +176,7 @@ class CouponsController {
                 start_at      ?? r.start_at,
                 end_at        ?? r.end_at,
                 status        ?? r.status,
+                applicable_to ?? r.applicable_to ?? 'both',
                 id, storeId
             ]);
 

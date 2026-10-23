@@ -19,7 +19,7 @@ router.post('/validate', async (req, res) => {
 
         const result = await pool.query(
             'SELECT * FROM discount_codes WHERE store_id = $1 AND code = $2',
-            [numericStoreId, code.trim().toUpperCase()]
+            [parseInt(numericStoreId), code.trim().toUpperCase()]
         );
         if (!result.rows.length) return res.status(404).json({ success: false, error: 'Invalid coupon code' });
 
@@ -77,22 +77,24 @@ router.get('/available', async (req, res) => {
         }
 
         const result = await pool.query(
-            `SELECT id, name, type, code, unit, value, min_order_value, scope, scope_items
+            `SELECT id, name, type, code, unit, value, min_order_value, scope, scope_items,
+                    applicable_to
              FROM discount_codes
              WHERE store_id = $1 AND status != 'disabled'
                AND start_at <= NOW() AND end_at >= NOW()
                AND (max_uses IS NULL OR current_uses < max_uses)
              ORDER BY value DESC`,
-            [numericStoreId]
+            [parseInt(numericStoreId)]
         );
 
         const eligible = result.rows.filter(c => {
+            // Issue 2 fix: coupon is valid if ANY cart product matches scope (not ALL)
             if (c.scope === 'product' && c.scope_items?.length) {
                 const scopePids = c.scope_items.map(k => String(k).split(':')[0]);
                 if (!pids.some(p => scopePids.includes(String(p)))) return false;
             }
             if (c.scope === 'category' && c.scope_items?.length) {
-                if (!cids.some(cat => c.scope_items.includes(cat))) return false;
+                if (!cids.some(cat => c.scope_items.includes(String(cat)))) return false;
             }
             return true;
         });
@@ -104,6 +106,7 @@ router.get('/available', async (req, res) => {
                 unit: c.unit, value: parseFloat(c.value),
                 min_order_value: parseFloat(c.min_order_value) || 0,
                 scope: c.scope,
+                applicable_to: c.applicable_to || 'both', // 'dine_in', 'delivery', 'both'
             }))
         });
     } catch (err) {
