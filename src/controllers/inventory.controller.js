@@ -2,6 +2,30 @@ const pool = require('../config/database');
 const XLSX = require('xlsx');
 const multer = require('multer');
 
+// ── File security helpers ────────────────────────────────────────────────────
+
+// XLSX magic bytes: PK\x03\x04 (ZIP-based Office Open XML)
+// XLS  magic bytes: \xD0\xCF\x11\xE0 (Compound Document)
+function detectSpreadsheetMime(buffer) {
+    const b = buffer.slice(0, 8);
+    // XLSX / XLSM (ZIP/OOXML)
+    if (b[0] === 0x50 && b[1] === 0x4B && b[2] === 0x03 && b[3] === 0x04) return 'xlsx';
+    // XLS (legacy OLE2)
+    if (b[0] === 0xD0 && b[1] === 0xCF && b[2] === 0x11 && b[3] === 0xE0) return 'xls';
+    return null;
+}
+
+// Strip leading formula trigger characters to prevent CSV/Excel formula injection.
+// Attackers embed =SYSTEM(), @SUM(), +cmd|' /C calc'!A0, -2+3+cmd|' /C calc'!A0
+// in cell values; Excel executes them on open if the cell starts with = @ + -
+function sanitizeCell(val) {
+    if (typeof val !== 'string') return val;
+    // Strip Excel ="..." text-format wrapper first
+    val = val.replace(/^="(.*)"$/, '$1').trim();
+    // Then strip formula trigger chars from the start
+    return val.replace(/^[=+\-@\t\r|%]+/, '').trim();
+}
+
 const syncInventory = async (storeId) => {
     const storeResult = await pool.query('SELECT config FROM stores WHERE id = $1', [storeId]);
     if (storeResult.rows.length === 0) return;
@@ -264,60 +288,6 @@ const downloadCSV = async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
 
-const uploadCSV = async (req, res) => {
-    try {
-        const { storeId } = req.params;
-        const { csvData } = req.body;
-        if (!csvData) return res.status(400).json({ success: false, error: 'No CSV data' });
-        // Parse CSV properly handling quoted fields
-        const parseCSVLine = (line) => {
-            const cols = [];
-            let current = '';
-            let inQuotes = false;
-            for (let c of line) {
-                if (c === '"') { inQuotes = !inQuotes; }
-                else if (c === ',' && !inQuotes) { cols.push(current.trim()); current = ''; }
-                else { current += c; }
-            }
-            cols.push(current.trim());
-            return cols;
-        };
-
-        const lines = csvData.trim().replace(/\r/g, '').split('\n');
-        const headers = parseCSVLine(lines[0]);
-        const inStockIdx = headers.indexOf('InStock');
-        const productIdIdx = headers.indexOf('product_id');
-        const variationIdIdx = headers.indexOf('variation_id');
-        const sizeIdIdx = headers.indexOf('size_id');
-        if (inStockIdx === -1) return res.status(400).json({ success: false, error: 'InStock column not found' });
-        // Strip Excel ="..." format and handle scientific notation
-        const toFullInt = (val) => {
-            if (!val) return val;
-            // Strip ="..." Excel text format
-            val = val.trim().replace(/^="?(.*?)"?$/, '$1');
-            return val;
-        };
-
-        let updated = 0, skipped = 0, errors = [];
-        for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) { skipped++; continue; }
-            const cols = parseCSVLine(lines[i]);
-            const productId = toFullInt(cols[productIdIdx]);
-            const variationId = toFullInt(cols[variationIdIdx]);
-            const sizeId = toFullInt(cols[sizeIdIdx]);
-            const inStock = parseInt(cols[inStockIdx]?.trim());
-            if (!productId || !variationId || !sizeId) { skipped++; continue; }
-            if (isNaN(inStock) || inStock < 0) { errors.push(`Row ${i+1}: Invalid InStock`); skipped++; continue; }
-            console.log(`Upload matching: storeId=${storeId} productId=${productId} variationId=${variationId} sizeId=${sizeId}`);
-            const r = await pool.query(
-                'UPDATE inventory SET stock_quantity=$1, updated_at=NOW() WHERE store_id=$2 AND product_id=$3 AND variation_id=$4 AND size_id=$5',
-                [inStock, storeId, productId, variationId, sizeId]);
-            if (r.rowCount > 0) updated++; else { errors.push(`Row ${i+1}: Not found`); skipped++; }
-        }
-        res.json({ success: true, updated, skipped, errors });
-    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
-};
-
 const syncStore = async (req, res) => {
     try {
         const { storeId } = req.params;
@@ -432,12 +402,39 @@ const downloadTallyCSV = async (req, res) => {
 
 
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Multer: only accept files whose declared MIME looks like a spreadsheet.
+// A second magic-byte check inside uploadXLSX catches renamed files.
+const XLSX_MIMES = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    'application/vnd.ms-excel',                                           // .xls
+    'application/octet-stream',   // some browsers send this for .xlsx
+];
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+    fileFilter: (req, file, cb) => {
+        const ext = (file.originalname || '').split('.').pop().toLowerCase();
+        if (!['xlsx', 'xls'].includes(ext)) {
+            return cb(new Error('Only .xlsx or .xls files are allowed'), false);
+        }
+        if (!XLSX_MIMES.includes(file.mimetype)) {
+            return cb(new Error('Invalid file type. Upload an Excel file (.xlsx or .xls)'), false);
+        }
+        cb(null, true);
+    },
+});
 
 const uploadXLSX = async (req, res) => {
     try {
         const { storeId } = req.params;
         if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+
+        // ── Magic byte check — must be real XLSX or XLS binary ──────────────
+        const detectedType = detectSpreadsheetMime(req.file.buffer);
+        if (!detectedType) {
+            return res.status(400).json({ success: false, error: 'Invalid file. Upload a genuine Excel file (.xlsx or .xls).' });
+        }
+
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
@@ -448,10 +445,11 @@ const uploadXLSX = async (req, res) => {
         let updated = 0, skipped = 0, errors = [];
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            const productId = String(row['product_id'] || '').replace(/^=?"?|"?$/g, '').trim();
-            const variationId = String(row['variation_id'] || '').replace(/^=?"?|"?$/g, '').trim();
-            const sizeId = String(row['size_id'] || '').replace(/^=?"?|"?$/g, '').trim();
-            const accountName = String(row['Account Name'] || '').trim();
+            // sanitizeCell strips formula injection chars (=, +, -, @, |) from cell values
+            const productId  = sanitizeCell(String(row['product_id']   || ''));
+            const variationId = sanitizeCell(String(row['variation_id'] || ''));
+            const sizeId      = sanitizeCell(String(row['size_id']      || ''));
+            const accountName = sanitizeCell(String(row['Account Name'] || ''));
             const stockIn = parseInt(row['Stock In']);
             if (!productId || !variationId || !sizeId) { skipped++; continue; }
 
@@ -475,4 +473,4 @@ const uploadXLSX = async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 };
 
-module.exports = { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory, uploadXLSX, multerUpload: upload };
+module.exports = { getInventory, updateStock, downloadCSV, downloadTallyCSV, syncStore, syncInventory, uploadXLSX, multerUpload: upload };
