@@ -38,8 +38,6 @@ const addonPublicRoutes = require('./routes/addon.public.routes');
 // ✅ NEW — QR Scanner routes
 const qrRoutes = require('./routes/qr.routes');
 
-// ✅ NEW — Cart recovery routes
-const cartRoutes = require('./routes/cartRoutes');
 
 // Import database to ensure connection
 require('./config/database');
@@ -291,8 +289,6 @@ app.use('/api/invoices', invoiceRoutes);
 // ✅ NEW — QR Scanner API (all routes under /api/qr)
 app.use('/api/qr', qrRoutes);
 
-// ✅ NEW — Cart recovery (storefront upsert + dashboard config/stats)
-app.use('/api', cartRoutes);
 
 // Public endpoint — check if platform payment gateway is enabled
 app.get('/api/public/payment-gateway-status', async (req, res) => {

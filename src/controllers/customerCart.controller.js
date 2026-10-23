@@ -9,16 +9,9 @@ const CustomerCartController = {
             const { storeId } = req.params;
             const customerId = req.customer.customerId;
 
-            // Delete expired carts first
-            await pool.query(
-                `DELETE FROM customer_carts 
-                 WHERE store_id = $1 AND customer_id = $2 AND expires_at < NOW()`,
-                [storeId, customerId]
-            );
-
             const result = await pool.query(
-                `SELECT items FROM customer_carts 
-                 WHERE store_id = $1 AND customer_id = $2`,
+                `SELECT items FROM customer_carts
+                 WHERE store_id = $1 AND customer_id = $2 AND order_placed = FALSE`,
                 [storeId, customerId]
             );
 
@@ -37,17 +30,40 @@ const CustomerCartController = {
         try {
             const { storeId } = req.params;
             const customerId = req.customer.customerId;
+            const customerPhone = req.customer.phone || null;
             const { items } = req.body;
 
+            // Compute cart total from items
+            const cartTotal = Array.isArray(items)
+                ? items.reduce((sum, i) => sum + (parseFloat(i.price) || 0) * (parseInt(i.quantity) || 1), 0)
+                : 0;
+
+            // Look up customer name (best-effort — don't fail if missing)
+            let customerName = null;
+            try {
+                const nameRow = await pool.query(
+                    'SELECT name FROM customers WHERE id = $1 LIMIT 1',
+                    [customerId]
+                );
+                customerName = nameRow.rows[0]?.name || null;
+            } catch (_) { /* ignore */ }
+
+            // Upsert by customer_id (primary key for System A),
+            // also writing phone/name/total so the recovery job can use them.
+            // UNIQUE constraint is on (store_id, customer_id) for this table.
             await pool.query(
-                `INSERT INTO customer_carts (store_id, customer_id, items, updated_at, expires_at)
-                 VALUES ($1, $2, $3, NOW(), NOW() + INTERVAL '12 hours')
+                `INSERT INTO customer_carts
+                    (store_id, customer_id, customer_phone, customer_name, items, cart_total, updated_at, order_placed, reminder_index)
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW(), FALSE, -1)
                  ON CONFLICT (store_id, customer_id)
-                 DO UPDATE SET 
-                    items = $3,
-                    updated_at = NOW(),
-                    expires_at = NOW() + INTERVAL '12 hours'`,
-                [storeId, customerId, JSON.stringify(items)]
+                 DO UPDATE SET
+                    customer_phone  = COALESCE($3, customer_carts.customer_phone),
+                    customer_name   = COALESCE($4, customer_carts.customer_name),
+                    items           = $5,
+                    cart_total      = $6,
+                    updated_at      = NOW(),
+                    order_placed    = FALSE`,
+                [storeId, customerId, customerPhone, customerName, JSON.stringify(items), cartTotal]
             );
 
             res.json({ success: true });
@@ -58,13 +74,16 @@ const CustomerCartController = {
     },
 
     // DELETE /api/store/:storeId/cart
+    // Mark order_placed = TRUE so the recovery job ignores this cart.
+    // We keep the row so analytics/history still works.
     clearCart: async (req, res) => {
         try {
             const { storeId } = req.params;
             const customerId = req.customer.customerId;
 
             await pool.query(
-                `DELETE FROM customer_carts 
+                `UPDATE customer_carts
+                 SET order_placed = TRUE, updated_at = NOW()
                  WHERE store_id = $1 AND customer_id = $2`,
                 [storeId, customerId]
             );
