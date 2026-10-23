@@ -35,6 +35,30 @@ const CustomerOrderController = {
 
             const orderId = `ORD-${Date.now()}`;
 
+            // If a coupon code was applied, atomically claim one use BEFORE inserting
+            // the order. The /use endpoint uses UPDATE ... WHERE current_uses < max_uses
+            // so concurrent checkouts can't both consume the last slot.
+            if (couponCode) {
+                const useRes = await pool.query(
+                    `UPDATE discount_codes
+                     SET current_uses = current_uses + 1
+                     WHERE store_id = $1 AND code = $2
+                       AND status != 'disabled'
+                       AND start_at <= NOW() AND end_at >= NOW()
+                       AND (max_uses IS NULL OR current_uses < max_uses)
+                     RETURNING id`,
+                    [storeId, couponCode.trim().toUpperCase()]
+                );
+                if (useRes.rows.length === 0) {
+                    // Coupon expired or just ran out — reject the order so customer sees the real reason
+                    return res.status(409).json({
+                        success: false,
+                        coupon_error: true,
+                        error: 'The coupon you applied is no longer valid. Please remove it and try again, or use a different offer.'
+                    });
+                }
+            }
+
             const result = await pool.query(
                 `INSERT INTO orders
                     (order_id, store_id, customer_id, customer_name, customer_phone, items, delivery_address,
