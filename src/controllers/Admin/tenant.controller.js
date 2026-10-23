@@ -190,7 +190,7 @@ class AdminTenantController {
             }
 
             // Clear FK-constrained tables that don't cascade automatically
-            await pool.query('DELETE FROM tenant_referrals WHERE tenant_id = $1 OR referred_tenant_id = $1', [id]);
+            await pool.query('DELETE FROM tenant_referrals WHERE referrer_tenant_id = $1 OR referred_tenant_id = $1', [id]);
             await pool.query('DELETE FROM wa_config WHERE tenant_id = $1', [id]);
 
             // Delete tenant (cascade will delete stores, products, orders)
