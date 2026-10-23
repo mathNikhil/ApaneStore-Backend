@@ -30,7 +30,7 @@ const CustomerOrderController = {
                 return res.status(400).json({ success: false, error: 'Please enter your UPI ID' });
             }
 
-            const customerResult = await pool.query('SELECT name, phone FROM customers WHERE id = $1', [customerId]);
+            const customerResult = await pool.query('SELECT name, phone, email FROM customers WHERE id = $1', [customerId]);
             const customer = customerResult.rows[0] || {};
 
             const orderId = `ORD-${Date.now()}`;
@@ -61,13 +61,14 @@ const CustomerOrderController = {
 
             const result = await pool.query(
                 `INSERT INTO orders
-                    (order_id, store_id, customer_id, customer_name, customer_phone, items, delivery_address,
+                    (order_id, store_id, customer_id, customer_name, customer_phone, customer_email, items, delivery_address,
                      subtotal, delivery_charge, tax_amount, total_amount, payment_method, customer_upi_id, status, payment_status, order_type,
                      branch_id, branch_name, delivery_zone, delivery_cost, dine_in_customer_name, dine_in_customer_mobile, discount_amount, coupon_code)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $14 = 'dine_in' THEN 'delivered' ELSE 'pending' END, CASE WHEN $14 = 'dine_in' THEN 'paid' ELSE 'pending' END, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CASE WHEN $15 = 'dine_in' THEN 'delivered' ELSE 'pending' END, CASE WHEN $15 = 'dine_in' THEN 'paid' ELSE 'pending' END, $15, $16, $17, $18, $19, $20, $21, $22, $23)
                  RETURNING *`,
                 [
                     orderId, storeId, customerId, customer.name || null, customer.phone || phone,
+                    customer.email || null,
                     JSON.stringify(items), JSON.stringify(deliveryAddress),
                     subtotal || 0, deliveryCharge || 0, taxAmount || 0, totalAmount, paymentMethod || null,
                     paymentMethod === 'upi' ? customerUpiId : null,

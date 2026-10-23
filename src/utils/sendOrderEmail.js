@@ -37,7 +37,7 @@ async function sendOrderEmail(storeId, orderId, newStatus) {
 
         // Get store Gmail credentials + name
         const storeRes = await pool.query(
-            'SELECT notification_gmail_email, notification_gmail_refresh_token, name FROM stores WHERE store_id = $1',
+            'SELECT notification_gmail_email, notification_gmail_refresh_token, name FROM stores WHERE id = $1',
             [storeId]
         );
         if (!storeRes.rows.length) return;
