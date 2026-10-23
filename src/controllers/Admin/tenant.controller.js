@@ -190,10 +190,31 @@ class AdminTenantController {
             }
 
             // Clear FK-constrained tables that don't cascade automatically
+            // tenant_referrals uses different column names
             await pool.query('DELETE FROM tenant_referrals WHERE referrer_tenant_id = $1 OR referred_tenant_id = $1', [id]);
-            await pool.query('DELETE FROM wa_config WHERE tenant_id = $1', [id]);
 
-            // Delete tenant (cascade will delete stores, products, orders)
+            // WhatsApp tables — production schema has tenant_id FK on these
+            // Delete child rows first (wa_send_log → wa_messages, wa_messages → wa_groups/wa_contacts)
+            await pool.query(`
+                DELETE FROM wa_send_log WHERE message_id IN (
+                    SELECT id FROM wa_messages WHERE tenant_id = $1
+                )`, [id]);
+            await pool.query('DELETE FROM wa_messages  WHERE tenant_id = $1', [id]);
+            await pool.query('DELETE FROM wa_contacts  WHERE tenant_id = $1', [id]);
+            await pool.query('DELETE FROM wa_groups    WHERE tenant_id = $1', [id]);
+            await pool.query('DELETE FROM wa_config    WHERE tenant_id = $1', [id]);
+            await pool.query('DELETE FROM wa_subscriptions WHERE tenant_id = $1', [id]);
+            await pool.query('DELETE FROM wa_daily_usage   WHERE tenant_id = $1', [id]).catch(() => {}); // col may not exist
+
+            // QR / payment tables
+            await pool.query('DELETE FROM qr_service_subscriptions WHERE tenant_id = $1', [id]).catch(() => {});
+            await pool.query('DELETE FROM pending_payments          WHERE tenant_id = $1', [id]).catch(() => {});
+
+            // Misc tables
+            await pool.query('DELETE FROM terms_acceptances         WHERE tenant_id = $1', [id]).catch(() => {});
+            await pool.query('DELETE FROM admin_impersonation_log   WHERE tenant_id = $1', [id]).catch(() => {});
+
+            // Delete tenant (cascade will delete stores → products, orders, etc.)
             await pool.query('DELETE FROM tenants WHERE id = $1', [id]);
 
             logger.info(`✅ Tenant ${id} deleted permanently`);
