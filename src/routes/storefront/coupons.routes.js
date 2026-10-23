@@ -42,10 +42,8 @@ router.post('/validate', async (req, res) => {
         // Scope check — coupon valid if ANY cart item matches
         const pids = (Array.isArray(product_ids) ? product_ids : String(product_ids).split(',')).map(String).filter(Boolean);
         const cids = (Array.isArray(category_ids) ? category_ids : String(category_ids).split(',')).map(String).filter(Boolean);
-        console.log('[validate] code:', code, 'scope:', coupon.scope, 'scope_items:', coupon.scope_items, 'pids received:', pids);
-        if (coupon.scope === 'product' && coupon.scope_items?.length) {
+        if (coupon.scope === 'product' && coupon.scope_items?.length && pids.length > 0) {
             const scopePids = coupon.scope_items.map(k => String(k).split(':')[0]);
-            console.log('[validate] scopePids:', scopePids, 'match:', pids.some(p => scopePids.includes(p)));
             if (!pids.some(p => scopePids.includes(p))) {
                 return res.status(400).json({ success: false, error: 'This offer is not applicable to your cart items' });
             }
