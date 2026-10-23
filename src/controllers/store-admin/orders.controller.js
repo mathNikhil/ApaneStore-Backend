@@ -183,7 +183,9 @@ class StoreAdminOrdersController {
             logger.info(`✅ Order ${orderId} status updated from ${oldStatus} to ${status}`);
 
             // Fire-and-forget order email notification
-            sendOrderEmail(storeId, orderId, status).catch(() => {});
+            // Use integer PK from checkResult — orderId from URL is the UUID string
+            const intOrderId = checkResult.rows[0].id;
+            sendOrderEmail(storeId, intOrderId, status).catch(() => {});
 
             res.status(200).json({
                 success: true,
