@@ -12,10 +12,13 @@ router.post('/validate', async (req, res) => {
 
         if (!code) return res.status(400).json({ success: false, error: 'code is required' });
 
-        // Resolve subdomain → numeric store id
-        const storeResult = await pool.query('SELECT id FROM stores WHERE subdomain = $1', [storeId]);
-        if (!storeResult.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
-        const numericStoreId = storeResult.rows[0].id;
+        // Resolve subdomain → numeric store id (handle both numeric id and subdomain)
+        let numericStoreId = storeId;
+        if (isNaN(storeId)) {
+            const storeResult = await pool.query('SELECT id FROM stores WHERE subdomain = $1', [storeId]);
+            if (!storeResult.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+            numericStoreId = storeResult.rows[0].id;
+        }
 
         const result = await pool.query(
             'SELECT * FROM discount_codes WHERE store_id = $1 AND code = $2',
