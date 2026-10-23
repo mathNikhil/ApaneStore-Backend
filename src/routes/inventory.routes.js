@@ -1,14 +1,13 @@
 const express = require('express');
 const router = express.Router({ mergeParams: true });
-const { getInventory, updateStock, downloadCSV, downloadTallyCSV, uploadCSV, syncStore, syncInventory, uploadXLSX, multerUpload } = require('../controllers/inventory.controller');
+const { getInventory, updateStock, downloadCSV, downloadTallyCSV, syncStore, syncInventory, uploadXLSX, multerUpload } = require('../controllers/inventory.controller');
 const { storeAdminAuth } = require('../middleware/storeAdminAuth');
 const pool = require('../config/database');
 
 router.get('/', storeAdminAuth, getInventory);
 router.put('/:inventoryId', storeAdminAuth, updateStock);
-router.get('/download-csv', storeAdminAuth, downloadCSV);
+router.get('/download-csv', storeAdminAuth, downloadCSV);         // downloads as XLSX
 router.get('/download-tally-csv', storeAdminAuth, downloadTallyCSV);
-router.post('/upload-csv', storeAdminAuth, uploadCSV);
 router.post('/upload-xlsx', storeAdminAuth, multerUpload.single('file'), uploadXLSX);
 router.post('/sync', storeAdminAuth, syncStore);
 
