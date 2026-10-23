@@ -8,7 +8,7 @@ const pool = require('../../config/database');
 router.post('/validate', async (req, res) => {
     try {
         const { storeId } = req.params;
-        const { code, order_value = 0 } = req.body;
+        const { code, order_value = 0, product_ids = [], category_ids = [] } = req.body;
 
         if (!code) return res.status(400).json({ success: false, error: 'code is required' });
 
@@ -34,6 +34,21 @@ router.post('/validate', async (req, res) => {
 
         if (parseFloat(order_value) < parseFloat(coupon.min_order_value || 0)) {
             return res.status(400).json({ success: false, error: `Minimum order value ₹${coupon.min_order_value} required` });
+        }
+
+        // Scope check — coupon valid if ANY cart item matches
+        const pids = (Array.isArray(product_ids) ? product_ids : String(product_ids).split(',')).map(String).filter(Boolean);
+        const cids = (Array.isArray(category_ids) ? category_ids : String(category_ids).split(',')).map(String).filter(Boolean);
+        if (coupon.scope === 'product' && coupon.scope_items?.length) {
+            const scopePids = coupon.scope_items.map(k => String(k).split(':')[0]);
+            if (!pids.some(p => scopePids.includes(p))) {
+                return res.status(400).json({ success: false, error: 'This offer is not applicable to your cart items' });
+            }
+        }
+        if (coupon.scope === 'category' && coupon.scope_items?.length) {
+            if (!cids.some(c => coupon.scope_items.map(String).includes(c))) {
+                return res.status(400).json({ success: false, error: 'This offer is not applicable to your cart items' });
+            }
         }
 
         // Calculate discount
