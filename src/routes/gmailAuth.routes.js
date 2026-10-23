@@ -39,7 +39,7 @@ router.get('/callback', async (req, res) => {
         const { data } = await oauth2.userinfo.get();
         const gmailEmail = data.email;
         await pool.query(
-            'UPDATE stores SET notification_gmail_email = $1, notification_gmail_refresh_token = $2, notification_gmail_connected_at = NOW() WHERE store_id = $3',
+            'UPDATE stores SET notification_gmail_email = $1, notification_gmail_refresh_token = $2, notification_gmail_connected_at = NOW() WHERE id = $3',
             [gmailEmail, tokens.refresh_token, storeId]
         );
         res.redirect(FRONTEND + '/dashboard?gmail=connected&email=' + encodeURIComponent(gmailEmail) + '&storeId=' + encodeURIComponent(storeId));
@@ -58,7 +58,7 @@ router.post('/disconnect', async (req, res) => {
              SET notification_gmail_email = NULL,
                  notification_gmail_refresh_token = NULL,
                  notification_gmail_connected_at = NULL
-             WHERE store_id = $1`,
+             WHERE id = $1`,
             [storeId]
         );
         res.json({ success: true, message: 'Gmail disconnected' });
