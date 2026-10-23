@@ -46,12 +46,30 @@ async function sendOrderEmail(storeId, orderId, newStatus) {
 
         // Get order details
         const orderRes = await pool.query(
-            'SELECT customer_name, customer_email, order_id, total_amount FROM orders WHERE id = $1',
+            'SELECT customer_name, customer_email, order_id, total_amount, items, delivery_address, payment_method, created_at FROM orders WHERE id = $1',
             [orderId]
         );
         if (!orderRes.rows.length) return;
         const order = orderRes.rows[0];
         if (!order.customer_email) return;
+
+        // Build item list string
+        let itemListText = '';
+        try {
+            const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+            if (Array.isArray(items)) {
+                itemListText = items.map(i => `${i.name || i.productName || 'Item'} x${i.quantity || 1} - ₹${i.price || 0}`).join('\n');
+            }
+        } catch(e) { itemListText = ''; }
+
+        // Build delivery address string
+        let addressText = '';
+        try {
+            const addr = typeof order.delivery_address === 'string' ? JSON.parse(order.delivery_address) : order.delivery_address;
+            if (addr) {
+                addressText = [addr.recipientName, addr.addressLine1, addr.addressLine2, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ');
+            }
+        } catch(e) { addressText = ''; }
 
         // Get template (fall back to defaults)
         const tplRes = await pool.query(
@@ -64,13 +82,21 @@ async function sendOrderEmail(storeId, orderId, newStatus) {
         let subject = (tpl && tpl.subject) || DEFAULT_SUBJECTS[templateKey];
         let body    = (tpl && tpl.body)    || DEFAULT_BODIES[templateKey];
 
-        // Replace variables
+        // Replace variables — covers all common template variable names
+        const orderTotal = order.total_amount ? `₹${order.total_amount}` : '';
         const vars = {
-            '{{customer_name}}': order.customer_name || 'Customer',
-            '{{order_id}}':      order.order_id || String(orderId),
-            '{{order_total}}':   order.total_amount ? `₹${order.total_amount}` : '',
-            '{{store_name}}':    storeName || 'Store',
-            '{{delivery_date}}': '',
+            '{{customer_name}}':   order.customer_name || 'Customer',
+            '{{order_id}}':        order.order_id || String(orderId),
+            '{{order_total}}':     orderTotal,
+            '{{total_amount}}':    orderTotal,
+            '{{amount}}':          orderTotal,
+            '{{store_name}}':      storeName || 'Store',
+            '{{item_list}}':       itemListText,
+            '{{items}}':           itemListText,
+            '{{delivery_address}}': addressText,
+            '{{address}}':         addressText,
+            '{{payment_method}}':  order.payment_method || '',
+            '{{delivery_date}}':   '',
         };
         Object.entries(vars).forEach(([k, v]) => {
             subject = subject.replaceAll(k, v);
