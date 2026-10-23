@@ -96,7 +96,7 @@ router.get('/available', async (req, res) => {
 
         const result = await pool.query(
             `SELECT id, name, type, code, unit, value, min_order_value, scope, scope_items,
-                    applicable_to
+                    applicable_to, end_at, start_at
              FROM discount_codes
              WHERE store_id = $1 AND status != 'disabled'
                AND start_at <= NOW() AND end_at >= NOW()
@@ -124,7 +124,9 @@ router.get('/available', async (req, res) => {
                 unit: c.unit, value: parseFloat(c.value),
                 min_order_value: parseFloat(c.min_order_value) || 0,
                 scope: c.scope,
+                scope_items: c.scope_items || [],
                 applicable_to: c.applicable_to || 'both', // 'dine_in', 'delivery', 'both'
+                end_at: c.end_at, // ISO string — client uses to filter expired coupons
             }))
         });
     } catch (err) {
