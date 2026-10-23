@@ -48,7 +48,7 @@ router.post('/validate', async (req, res) => {
                 return res.status(400).json({ success: false, error: 'This offer is not applicable to your cart items' });
             }
         }
-        if (coupon.scope === 'category' && coupon.scope_items?.length) {
+        if (coupon.scope === 'category' && coupon.scope_items?.length && cids.length > 0) {
             if (!cids.some(c => coupon.scope_items.map(String).includes(c))) {
                 return res.status(400).json({ success: false, error: 'This offer is not applicable to your cart items' });
             }
@@ -107,11 +107,11 @@ router.get('/available', async (req, res) => {
 
         const eligible = result.rows.filter(c => {
             // Issue 2 fix: coupon is valid if ANY cart product matches scope (not ALL)
-            if (c.scope === 'product' && c.scope_items?.length) {
+            if (c.scope === 'product' && c.scope_items?.length && pids.length > 0) {
                 const scopePids = c.scope_items.map(k => String(k).split(':')[0]);
                 if (!pids.some(p => scopePids.includes(String(p)))) return false;
             }
-            if (c.scope === 'category' && c.scope_items?.length) {
+            if (c.scope === 'category' && c.scope_items?.length && cids.length > 0) {
                 if (!cids.some(cat => c.scope_items.includes(String(cat)))) return false;
             }
             return true;
