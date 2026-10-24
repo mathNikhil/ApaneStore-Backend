@@ -108,13 +108,16 @@ async function processStore(store) {
 
         const nextReminder = reminders[nextReminderIndex];
 
-        // Sequential model: skip if this cart was reminded in the last 20 minutes
-        // (prevents double-send within same 30-min batch window).
-        // Using 20 min instead of "same day" so tenants can test by changing send_time.
+        // Test mode: 20-min cooldown (allows testing multiple reminders same day).
+        // Production mode: one reminder per customer per day (IST date check).
         if (cart.last_reminded_at) {
-            const minsSinceLastReminder = (Date.now() - new Date(cart.last_reminded_at).getTime()) / (1000 * 60);
-            if (minsSinceLastReminder < 20) {
-                continue;
+            if (config.test_mode) {
+                const minsSince = (Date.now() - new Date(cart.last_reminded_at).getTime()) / (1000 * 60);
+                if (minsSince < 20) continue;
+            } else {
+                const lastIst = new Date(new Date(cart.last_reminded_at).getTime() + 5.5 * 3600000);
+                const nowIst  = new Date(Date.now() + 5.5 * 3600000);
+                if (lastIst.toISOString().slice(0, 10) === nowIst.toISOString().slice(0, 10)) continue;
             }
         }
 
