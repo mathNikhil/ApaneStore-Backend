@@ -46,7 +46,7 @@ function isSendTimeNow(sendTime) {
     // True if we're within the same 30-min window as the target time
     const currentMinutes = hh * 60 + mm;
     const targetMinutes = targetHH * 60 + targetMM;
-    return currentMinutes >= targetMinutes && currentMinutes < targetMinutes + 30;
+    return currentMinutes >= targetMinutes && currentMinutes <= targetMinutes + 30;
 }
 
 // ─── Has this store already run its batch today? ──────────────────────────────
