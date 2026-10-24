@@ -63,16 +63,16 @@ async function sendPersonal({ tenantId, phone, mediaUrl, caption, gapSeconds = 2
   // JID format WhatsApp expects
   const jid = phone.replace(/\D/g, '') + '@s.whatsapp.net';
 
-  // Fetch image as buffer
-  const imgRes  = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
-  const buffer  = Buffer.from(imgRes.data);
-  const mime    = imgRes.headers['content-type'] || 'image/jpeg';
-
-  await sock.sendMessage(jid, {
-    image: buffer,
-    caption: caption || '',
-    mimetype: mime,
-  });
+  if (mediaUrl) {
+    // Fetch image as buffer and send as image+caption
+    const imgRes = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(imgRes.data);
+    const mime   = imgRes.headers['content-type'] || 'image/jpeg';
+    await sock.sendMessage(jid, { image: buffer, caption: caption || '', mimetype: mime });
+  } else {
+    // Text-only message (e.g. cart recovery)
+    await sock.sendMessage(jid, { text: caption || '' });
+  }
 
   await delay(gapSeconds * 1000); // 2-second human-like gap
 }
