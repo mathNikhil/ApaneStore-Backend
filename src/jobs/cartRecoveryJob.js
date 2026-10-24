@@ -177,7 +177,7 @@ async function processStore(store) {
             cartsSent++;
             logger.info(`  ✅ Sent reminder #${nextReminderIndex + 1} to ${cart.customer_phone}`);
         } catch (err) {
-            logger.error(`  ❌ Failed to send to ${cart.customer_phone}:`, err.message);
+            logger.error(`  ❌ Failed to send to ${cart.customer_phone}: ${err.message} | stack: ${err.stack}`);
             await pool.query(
                 `INSERT INTO wa_send_queue
                     (store_id, tenant_id, type, customer_phone, customer_name, message,
