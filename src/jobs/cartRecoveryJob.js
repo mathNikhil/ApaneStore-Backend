@@ -66,7 +66,8 @@ async function processStore(store) {
     const config = store.cart_recovery_config;
     if (!config?.enabled) return;
     if (!isSendTimeNow(config.send_time || '12:00')) return;
-    if (await alreadyRanToday(store.id)) return;
+    // Note: no alreadyRanToday() guard — per-cart last_reminded_at handles dedup.
+    // This allows tenants to test by changing send_time and retrying same day.
 
     const reminders = config.reminders || [];
     if (reminders.length === 0) return;
@@ -107,15 +108,12 @@ async function processStore(store) {
 
         const nextReminder = reminders[nextReminderIndex];
 
-        // Sequential daily model: each reminder fires on a separate day's batch run.
-        // If this cart was last reminded today already (last_reminded_at is today), skip.
-        // If cart has never been reminded, it's eligible from the first run after abandonment.
+        // Sequential model: skip if this cart was reminded in the last 20 minutes
+        // (prevents double-send within same 30-min batch window).
+        // Using 20 min instead of "same day" so tenants can test by changing send_time.
         if (cart.last_reminded_at) {
-            const lastDate = new Date(cart.last_reminded_at);
-            const ist = new Date(Date.now() + (5.5 * 60 * 60 * 1000));
-            const lastIst = new Date(lastDate.getTime() + (5.5 * 60 * 60 * 1000));
-            if (lastIst.toISOString().slice(0, 10) === ist.toISOString().slice(0, 10)) {
-                // Already reminded today — skip to tomorrow
+            const minsSinceLastReminder = (Date.now() - new Date(cart.last_reminded_at).getTime()) / (1000 * 60);
+            if (minsSinceLastReminder < 20) {
                 continue;
             }
         }
