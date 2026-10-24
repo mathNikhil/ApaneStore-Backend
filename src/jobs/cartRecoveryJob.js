@@ -106,15 +106,18 @@ async function processStore(store) {
         }
 
         const nextReminder = reminders[nextReminderIndex];
-        const delayHours = nextReminder.delay_hours || 24;
 
-        // Check if enough time has passed since cart was updated (or last reminded)
-        const referenceTime = cart.last_reminded_at || cart.updated_at;
-        const hoursSinceReference = (Date.now() - new Date(referenceTime).getTime()) / (1000 * 60 * 60);
-
-        if (hoursSinceReference < delayHours) {
-            // Not ready yet — will be eligible in a future run
-            continue;
+        // Sequential daily model: each reminder fires on a separate day's batch run.
+        // If this cart was last reminded today already (last_reminded_at is today), skip.
+        // If cart has never been reminded, it's eligible from the first run after abandonment.
+        if (cart.last_reminded_at) {
+            const lastDate = new Date(cart.last_reminded_at);
+            const ist = new Date(Date.now() + (5.5 * 60 * 60 * 1000));
+            const lastIst = new Date(lastDate.getTime() + (5.5 * 60 * 60 * 1000));
+            if (lastIst.toISOString().slice(0, 10) === ist.toISOString().slice(0, 10)) {
+                // Already reminded today — skip to tomorrow
+                continue;
+            }
         }
 
         // Cart is eligible — check if we have daily slots
