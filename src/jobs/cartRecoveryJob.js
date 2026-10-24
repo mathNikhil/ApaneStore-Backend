@@ -217,7 +217,7 @@ async function runCartRecoveryJob() {
             try {
                 await processStore(store);
             } catch (err) {
-                logger.error(`❌ Cart recovery failed for store ${store.id}:`, err.message);
+                logger.error(`❌ Cart recovery failed for store ${store.id}: ${err.message} | stack: ${err.stack}`);
             }
         }
     } catch (err) {
