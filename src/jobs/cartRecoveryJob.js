@@ -98,6 +98,13 @@ async function processStore(store) {
     );
 
     for (const cart of carts) {
+        // Skip carts with no phone number — can't send WA message
+        if (!cart.customer_phone) {
+            cartsSkipped++;
+            logger.info(`  ⚠️ Skipping cart ${cart.id} — no customer phone`);
+            continue;
+        }
+
         const nextReminderIndex = cart.reminder_index + 1;
 
         // No more reminders configured for this cart
