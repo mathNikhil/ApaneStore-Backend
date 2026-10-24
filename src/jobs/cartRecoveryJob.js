@@ -18,13 +18,12 @@ const { getTodayCount, incrementDailyCount, sendPersonal } = require('../service
 const DAILY_LIMIT = 75;
 
 // ─── Template variable replacement ───────────────────────────────────────────
-function buildMessage(template, cart, storeLink, coupon) {
+function buildMessage(template, cart, storeLink) {
     return template
         .replace(/{name}/gi, cart.customer_name || 'there')
         .replace(/{total}/gi, `₹${parseFloat(cart.cart_total).toFixed(0)}`)
         .replace(/{items}/gi, buildItemsSummary(cart.items))
-        .replace(/{link}/gi, storeLink || '')
-        .replace(/{coupon}/gi, coupon || '');
+        .replace(/{link}/gi, storeLink || '');
 }
 
 function buildItemsSummary(items) {
@@ -142,7 +141,7 @@ async function processStore(store) {
                  ON CONFLICT DO NOTHING`,
                 [
                     store.id, store.tenant_id, cart.customer_phone, cart.customer_name,
-                    buildMessage(nextReminder.message, cart, storeLink, nextReminder.coupon),
+                    buildMessage(nextReminder.message, cart, storeLink),
                     cart.id, nextReminderIndex
                 ]
             );
@@ -151,7 +150,7 @@ async function processStore(store) {
 
         // Send the message
         try {
-            const message = buildMessage(nextReminder.message, cart, storeLink, nextReminder.coupon);
+            const message = buildMessage(nextReminder.message, cart, storeLink);
             await sendPersonal({ tenantId: store.tenant_id, phone: cart.customer_phone, caption: message });
             await incrementDailyCount(store.tenant_id, 1);
 
@@ -186,7 +185,7 @@ async function processStore(store) {
                  VALUES ($1, $2, 'cart_recovery', $3, $4, $5, 1, NOW(), 'failed', $6, $7, $8)`,
                 [
                     store.id, store.tenant_id, cart.customer_phone, cart.customer_name,
-                    buildMessage(nextReminder.message, cart, storeLink, nextReminder.coupon),
+                    buildMessage(nextReminder.message, cart, storeLink),
                     err.message, cart.id, nextReminderIndex
                 ]
             );
