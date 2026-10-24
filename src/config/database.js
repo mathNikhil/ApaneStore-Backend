@@ -523,6 +523,37 @@ const runColumnMigrations = async () => {
         )`,
         `CREATE INDEX IF NOT EXISTS idx_customer_carts_store ON customer_carts(store_id)`,
         `CREATE INDEX IF NOT EXISTS idx_customer_carts_recovery ON customer_carts(store_id, order_placed, updated_at)`,
+        `ALTER TABLE customer_carts ADD COLUMN IF NOT EXISTS last_reminded_at TIMESTAMP`,
+        // ── Cart Recovery job support tables ──────────────────────────────────
+        `CREATE TABLE IF NOT EXISTS abandoned_cart_batch_log (
+            id              SERIAL PRIMARY KEY,
+            store_id        INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+            ran_at          TIMESTAMP DEFAULT NOW(),
+            carts_eligible  INTEGER DEFAULT 0,
+            carts_sent      INTEGER DEFAULT 0,
+            carts_queued    INTEGER DEFAULT 0,
+            carts_skipped   INTEGER DEFAULT 0,
+            daily_limit_hit BOOLEAN DEFAULT FALSE
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_cart_batch_log_store ON abandoned_cart_batch_log(store_id, ran_at)`,
+        `CREATE TABLE IF NOT EXISTS wa_send_queue (
+            id              SERIAL PRIMARY KEY,
+            store_id        INTEGER REFERENCES stores(id) ON DELETE CASCADE,
+            tenant_id       INTEGER,
+            type            VARCHAR(50) DEFAULT 'cart_recovery',
+            customer_phone  VARCHAR(20),
+            customer_name   VARCHAR(255),
+            message         TEXT,
+            priority        INTEGER DEFAULT 1,
+            scheduled_for   TIMESTAMP DEFAULT NOW(),
+            sent_at         TIMESTAMP,
+            status          VARCHAR(20) DEFAULT 'pending',
+            error_msg       TEXT,
+            cart_id         UUID,
+            reminder_index  INTEGER,
+            created_at      TIMESTAMP DEFAULT NOW()
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_wa_send_queue_store ON wa_send_queue(store_id, status)`,
     ];
 
     let applied = 0;
