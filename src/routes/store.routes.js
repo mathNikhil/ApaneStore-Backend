@@ -240,4 +240,70 @@ router.get('/:storeId/orders/count', async (req, res) => {
     }
 });
 
+// ── Cart Recovery: GET stats + config ────────────────────────────────────────
+// GET /api/stores/:storeId/cart/stats
+router.get('/:storeId/cart/stats', async (req, res) => {
+    try {
+        const { storeId } = req.params;
+
+        // Config from stores table
+        const storeRes = await pool.query(
+            'SELECT cart_recovery_config FROM stores WHERE id = $1',
+            [storeId]
+        );
+        if (!storeRes.rows.length) return res.status(404).json({ error: 'Store not found' });
+        const config = storeRes.rows[0].cart_recovery_config || {};
+
+        // Stats from customer_carts
+        const statsRes = await pool.query(
+            `SELECT
+                COUNT(*) FILTER (WHERE order_placed = FALSE)                          AS active_carts,
+                COUNT(*) FILTER (WHERE order_placed = FALSE AND reminder_index >= 0)  AS reminders_sent,
+                COUNT(*) FILTER (WHERE order_placed = TRUE)                           AS recovered,
+                COALESCE(SUM(cart_total) FILTER (WHERE order_placed = FALSE), 0)      AS abandoned_value
+             FROM customer_carts
+             WHERE store_id = $1`,
+            [storeId]
+        );
+        const s = statsRes.rows[0];
+        const stats = {
+            active_carts:    parseInt(s.active_carts, 10),
+            reminders_sent:  parseInt(s.reminders_sent, 10),
+            recovered:       parseInt(s.recovered, 10),
+            abandoned_value: parseFloat(s.abandoned_value),
+        };
+
+        res.json({ config, stats });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Cart Recovery: PUT config ─────────────────────────────────────────────────
+// PUT /api/stores/:storeId/cart/config
+router.put('/:storeId/cart/config', async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const { enabled, send_time, min_cart_value, reminders } = req.body;
+
+        const newConfig = {
+            enabled:        !!enabled,
+            send_time:      send_time      || '12:00',
+            min_cart_value: parseFloat(min_cart_value) || 0,
+            reminders:      Array.isArray(reminders) && reminders.length ? reminders : [
+                { delay_hours: 24, message: 'Hi {name}! You left ₹{total} worth of items in your cart.\n\n{items} — still waiting for you 🛍️\n\nComplete your order: {link}' }
+            ],
+        };
+
+        await pool.query(
+            'UPDATE stores SET cart_recovery_config = $1 WHERE id = $2',
+            [JSON.stringify(newConfig), storeId]
+        );
+
+        res.json({ success: true, config: newConfig });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
