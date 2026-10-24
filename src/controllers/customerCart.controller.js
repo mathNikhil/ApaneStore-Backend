@@ -30,7 +30,13 @@ const CustomerCartController = {
         try {
             const { storeId } = req.params;
             const customerId = req.customer.customerId;
-            const customerPhone = req.customer.phone || null;
+            // Normalize phone: strip non-digits, prepend 91 if it's a 10-digit Indian number
+            const rawPhone = req.customer.phone || null;
+            let customerPhone = null;
+            if (rawPhone) {
+                const digits = rawPhone.replace(/\D/g, '');
+                customerPhone = digits.length === 10 ? `91${digits}` : digits;
+            }
             const { items } = req.body;
 
             // Compute cart total from items
