@@ -27,7 +27,7 @@ class CouponsController {
 
             let query = `
                 SELECT id, name, type, code, unit, value, buy_x_get_y,
-                       min_order_value, max_uses, current_uses, scope, scope_items,
+                       min_order_value, max_uses, current_uses, scope, scope_items, get_items,
                        start_at, end_at, status, created_at
                 FROM discount_codes
                 WHERE store_id = $1
@@ -80,7 +80,7 @@ class CouponsController {
             const {
                 name, type, code: rawCode, unit, value = 0, buy_x_get_y = null,
                 min_order_value = 0, max_uses = null, scope = 'full_store',
-                scope_items = [], start_at, end_at, applicable_to = 'both'
+                scope_items = [], get_items = [], start_at, end_at, applicable_to = 'both'
             } = req.body;
 
             if (!name || !type || !unit || !start_at || !end_at) {
@@ -109,15 +109,15 @@ class CouponsController {
 
             const result = await pool.query(`
                 INSERT INTO discount_codes
-                (store_id, name, type, code, unit, value, buy_x_get_y, min_order_value, max_uses, scope, scope_items, start_at, end_at, status, applicable_to)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'scheduled',$14)
+                (store_id, name, type, code, unit, value, buy_x_get_y, min_order_value, max_uses, scope, scope_items, get_items, start_at, end_at, status, applicable_to)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'scheduled',$15)
                 RETURNING *
             `, [
                 storeId, name, type, code, unit, value,
                 buy_x_get_y ? JSON.stringify(buy_x_get_y) : null,
                 min_order_value, max_uses || null, scope,
-                JSON.stringify(scope_items), start_at, end_at,
-                applicable_to
+                JSON.stringify(scope_items), JSON.stringify(get_items),
+                start_at, end_at, applicable_to
             ]);
 
             const row = { ...result.rows[0], status: computeStatus(result.rows[0]) };
@@ -137,7 +137,7 @@ class CouponsController {
             const { storeId, id } = req.params;
             const {
                 name, unit, value, buy_x_get_y, min_order_value,
-                max_uses, scope, scope_items, start_at, end_at, status, applicable_to
+                max_uses, scope, scope_items, get_items, start_at, end_at, status, applicable_to
             } = req.body;
 
             // Fetch existing
@@ -158,11 +158,12 @@ class CouponsController {
                     max_uses        = $6,
                     scope           = $7,
                     scope_items     = $8,
-                    start_at        = $9,
-                    end_at          = $10,
-                    status          = $11,
-                    applicable_to   = $12
-                WHERE id = $13 AND store_id = $14
+                    get_items       = $9,
+                    start_at        = $10,
+                    end_at          = $11,
+                    status          = $12,
+                    applicable_to   = $13
+                WHERE id = $14 AND store_id = $15
                 RETURNING *
             `, [
                 name          ?? r.name,
@@ -173,6 +174,7 @@ class CouponsController {
                 max_uses      !== undefined ? (max_uses || null) : r.max_uses,
                 scope         ?? r.scope,
                 scope_items   !== undefined ? JSON.stringify(scope_items) : r.scope_items,
+                get_items     !== undefined ? JSON.stringify(get_items)   : (r.get_items ?? '[]'),
                 start_at      ?? r.start_at,
                 end_at        ?? r.end_at,
                 status        ?? r.status,
