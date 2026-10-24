@@ -35,8 +35,10 @@ async function up() {
 
                 -- Scope
                 scope VARCHAR(20) NOT NULL DEFAULT 'full_store' CHECK (scope IN ('full_store', 'product', 'category')),
-                -- JSON array of product_ids or category_ids
+                -- JSON array of product_ids or category_ids (buy side for Buy X Get Y)
                 scope_items JSONB DEFAULT '[]',
+                -- JSON array of product_ids that are given free (Buy X Get Y only; empty = same as scope_items)
+                get_items JSONB DEFAULT '[]',
 
                 -- Validity window
                 start_at TIMESTAMP WITH TIME ZONE NOT NULL,
