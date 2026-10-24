@@ -507,6 +507,64 @@ router.get('/messages/:messageId/log', async (req, res) => {
   res.json(rows);
 });
 
+// GET /history — merged history: compose messages + cart recovery sends
+router.get('/history', async (req, res) => {
+  try {
+    // Compose/scheduled messages (sent or failed)
+    const { rows: msgs } = await db.query(
+      `SELECT
+         'compose'               AS source,
+         id::text                AS id,
+         status,
+         caption                 AS message,
+         media_url,
+         sent_count,
+         failed_count,
+         total_recipients,
+         sent_at                 AS occurred_at,
+         created_at
+       FROM wa_messages
+       WHERE tenant_id=$1 AND status IN ('sent','failed')
+       ORDER BY COALESCE(sent_at, created_at) DESC
+       LIMIT 100`,
+      [req.tenantId]
+    );
+
+    // Cart recovery sends from wa_send_queue
+    const { rows: cartRows } = await db.query(
+      `SELECT
+         'cart_recovery'         AS source,
+         id::text                AS id,
+         status,
+         message,
+         NULL                    AS media_url,
+         CASE WHEN status='sent' THEN 1 ELSE 0 END AS sent_count,
+         CASE WHEN status='failed' THEN 1 ELSE 0 END AS failed_count,
+         1                       AS total_recipients,
+         COALESCE(sent_at, scheduled_for) AS occurred_at,
+         created_at,
+         customer_name,
+         customer_phone,
+         reminder_index
+       FROM wa_send_queue
+       WHERE tenant_id=$1 AND type='cart_recovery'
+       ORDER BY COALESCE(sent_at, scheduled_for) DESC
+       LIMIT 100`,
+      [req.tenantId]
+    );
+
+    // Merge and sort by occurred_at desc
+    const all = [...msgs, ...cartRows].sort((a, b) =>
+      new Date(b.occurred_at || b.created_at) - new Date(a.occurred_at || a.created_at)
+    ).slice(0, 100);
+
+    res.json(all);
+  } catch (err) {
+    console.error('[History] error:', err.message);
+    res.status(500).json({ error: 'Failed to load history' });
+  }
+});
+
 module.exports = router;
 
 // ════════════════════════════════════════════════════════
