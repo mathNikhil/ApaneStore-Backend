@@ -506,6 +506,23 @@ const runColumnMigrations = async () => {
         `ALTER TABLE customers ADD COLUMN IF NOT EXISTS facebook_id TEXT`,
         `ALTER TABLE customers ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'otp'`,
         `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'otp'`,
+        // ── Cart Recovery ─────────────────────────────────────────────────────
+        `ALTER TABLE stores ADD COLUMN IF NOT EXISTS cart_recovery_config JSONB DEFAULT '{}'`,
+        `CREATE TABLE IF NOT EXISTS customer_carts (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            store_id        INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+            customer_id     UUID NOT NULL,
+            customer_phone  VARCHAR(20),
+            customer_name   VARCHAR(255),
+            items           JSONB NOT NULL DEFAULT '[]',
+            cart_total      NUMERIC(12,2) DEFAULT 0,
+            updated_at      TIMESTAMP DEFAULT NOW(),
+            order_placed    BOOLEAN DEFAULT FALSE,
+            reminder_index  INTEGER DEFAULT -1,
+            UNIQUE (store_id, customer_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_customer_carts_store ON customer_carts(store_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_customer_carts_recovery ON customer_carts(store_id, order_placed, updated_at)`,
     ];
 
     let applied = 0;
