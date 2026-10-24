@@ -554,6 +554,7 @@ const runColumnMigrations = async () => {
             created_at      TIMESTAMP DEFAULT NOW()
         )`,
         `CREATE INDEX IF NOT EXISTS idx_wa_send_queue_store ON wa_send_queue(store_id, status)`,
+        `ALTER TABLE wa_send_queue ALTER COLUMN customer_phone DROP NOT NULL`,
     ];
 
     let applied = 0;
