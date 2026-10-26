@@ -51,7 +51,7 @@ router.get('/', async (req, res) => {
                 oi.name           AS service_name
              FROM service.bookings b
              LEFT JOIN service.staff_members sm ON sm.id = b.staff_id
-             LEFT JOIN orders o  ON o.order_id = b.order_id
+             LEFT JOIN orders o  ON o.order_id = b.order_id::text
              LEFT JOIN LATERAL (
                  SELECT elem->>'name' AS name
                  FROM jsonb_array_elements(o.items) AS elem
