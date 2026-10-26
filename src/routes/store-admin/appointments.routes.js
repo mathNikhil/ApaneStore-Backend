@@ -102,8 +102,8 @@ router.get('/', async (req, res) => {
             }
         });
     } catch (err) {
-        console.error('Appointments fetch error:', err);
-        res.status(500).json({ success: false, error: 'Failed to fetch appointments' });
+        console.error('Appointments fetch error:', err.message, err.stack);
+        res.status(500).json({ success: false, error: err.message || 'Failed to fetch appointments' });
     }
 });
 
