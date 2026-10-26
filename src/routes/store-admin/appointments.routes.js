@@ -142,10 +142,10 @@ router.patch('/:bookingId/status', async (req, res) => {
         // Mirror status change to the linked order so customer sees it on storefront
         const ORDER_STATUS_MAP = {
             confirmed:  'confirmed',
-            in_session: 'processing',
-            completed:  'delivered',
+            in_session: 'in_progress',
+            completed:  'completed',
             cancelled:  'cancelled',
-            // no_show is internal — don't change the customer's order status
+            no_show:    'no_show',
         };
         const orderStatus = ORDER_STATUS_MAP[status];
         if (orderStatus && rows[0].order_id) {
