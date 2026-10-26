@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 
         // Resolve storeId → store_id UUID (same pattern as slots.controller)
         const storeRow = await pool.query(
-            `SELECT id AS store_int_id, config FROM stores
+            `SELECT id AS store_int_id, store_id AS store_str_id, config FROM stores
              WHERE store_id = $1
                 OR (id::text = $1 AND $1 ~ '^[0-9]+$')
              LIMIT 1`,
@@ -28,7 +28,8 @@ router.get('/', async (req, res) => {
         if (!storeRow.rows.length) {
             return res.status(404).json({ success: false, error: 'Store not found' });
         }
-        const storeIntId = storeRow.rows[0].store_int_id;
+        const storeIntId = storeRow.rows[0].store_int_id;   // integer — bookings.store_id
+        const storeStrId = storeRow.rows[0].store_str_id;   // 'STORE_...' — staff_members.store_id
 
         // Pull bookings from service.bookings joined with staff + orders
         const { rows: bookings } = await pool.query(
@@ -66,9 +67,9 @@ router.get('/', async (req, res) => {
         const { rows: staffList } = await pool.query(
             `SELECT id, name, phone, work_start, work_end
              FROM service.staff_members
-             WHERE store_id = $1::text AND is_active = true
+             WHERE store_id = $1 AND is_active = true
              ORDER BY name`,
-            [storeIntId]
+            [storeStrId]
         );
 
         // Pull store booking hours from config

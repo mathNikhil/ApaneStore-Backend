@@ -94,28 +94,29 @@ const CustomerOrderController = {
             // check (slots.controller) sees them as occupied and blocks overbooking.
             try {
                 const storeRow = await pool.query(
-                    `SELECT id AS store_int_id FROM stores
+                    `SELECT id AS store_int_id, store_id AS store_str_id FROM stores
                      WHERE store_id = $1
                         OR (id::text = $1 AND $1 ~ '^[0-9]+$')
                      LIMIT 1`,
                     [String(storeId)]
                 );
-                const storeUuid = storeRow.rows[0]?.store_int_id;
+                const storeIntId = storeRow.rows[0]?.store_int_id;   // integer — for bookings.store_id
+                const storeStrId = storeRow.rows[0]?.store_str_id;   // 'STORE_...' — for staff_members.store_id
 
                 for (const item of items) {
                     const slots = item.selectedSlots || [];
                     if (!slots.length) continue;
 
                     const duration = parseInt(item.duration) || 60;
-                    const staffName = item.staffName || null;
 
                     for (const slot of slots) {
                         // Resolve staff_id from name (best-effort — null is fine, slot still blocks)
                         let staffId = null;
-                        if (storeUuid && slot.staffName) {
+                        const staffName = slot.staffName || item.staffName || null;
+                        if (storeStrId && staffName) {
                             const staffRow = await pool.query(
-                                `SELECT id FROM service.staff_members WHERE store_id = $1::text AND name = $2 LIMIT 1`,
-                                [storeUuid, slot.staffName || item.staffName]
+                                `SELECT id FROM service.staff_members WHERE store_id = $1 AND name = $2 LIMIT 1`,
+                                [storeStrId, staffName]
                             );
                             staffId = staffRow.rows[0]?.id || null;
                         }
@@ -126,7 +127,7 @@ const CustomerOrderController = {
                              VALUES ($1, $2, $3, $4, $5, $6, 'confirmed')
                              ON CONFLICT DO NOTHING`,
                             [
-                                storeUuid,
+                                storeIntId,
                                 slot.date,
                                 slot.startTime,
                                 duration,
