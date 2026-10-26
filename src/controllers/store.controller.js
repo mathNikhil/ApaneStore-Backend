@@ -284,6 +284,55 @@ class StoreController {
                 logger.warn(`⚠️ Inventory sync failed for store ${id}: ${e.message}`);
             }
 
+            // Sync staff members to service.staff_members for service stores
+            if ((storeType || result.rows[0].store_type) === 'service' && bookingSettings?.staffMembers) {
+                try {
+                    const staffList = bookingSettings.staffMembers;
+                    const storeUuid = result.rows[0].store_id;
+
+                    // Upsert each staff member (match by name within this store)
+                    for (const staff of staffList) {
+                        await pool.query(
+                            `INSERT INTO service.staff_members
+                                (store_id, name, phone, premium_percent, is_active)
+                             VALUES ($1, $2, $3, $4, true)
+                             ON CONFLICT (store_id, name)
+                             DO UPDATE SET
+                                phone           = EXCLUDED.phone,
+                                premium_percent = EXCLUDED.premium_percent,
+                                is_active       = true,
+                                updated_at      = NOW()`,
+                            [storeUuid, staff.name, staff.phone || null, parseFloat(staff.premiumPercent) || 0]
+                        );
+                    }
+
+                    // Soft-delete staff removed from the list
+                    if (staffList.length > 0) {
+                        const activeNames = staffList.map(s => s.name);
+                        await pool.query(
+                            `UPDATE service.staff_members
+                             SET is_active = false, updated_at = NOW()
+                             WHERE store_id = $1
+                               AND name != ALL($2::text[])
+                               AND is_active = true`,
+                            [storeUuid, activeNames]
+                        );
+                    } else {
+                        // All staff removed — soft-delete all
+                        await pool.query(
+                            `UPDATE service.staff_members
+                             SET is_active = false, updated_at = NOW()
+                             WHERE store_id = $1 AND is_active = true`,
+                            [storeUuid]
+                        );
+                    }
+
+                    logger.info(`✅ Staff synced for store ${storeUuid}: ${staffList.length} active`);
+                } catch (e) {
+                    logger.warn(`⚠️ Staff sync failed for store ${id}: ${e.message}`);
+                }
+            }
+
             // If payment gateway disabled — delete keys from DB for security
             if (paymentSettings !== undefined) {
                 if (!paymentSettings.cashfreeEnabled) {
