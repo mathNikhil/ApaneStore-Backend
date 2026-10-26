@@ -69,9 +69,9 @@ router.get('/', async (req, res) => {
              LEFT JOIN orders o  ON o.id = b.order_id OR o.order_id = b.order_id::text
              LEFT JOIN LATERAL (
                  SELECT elem->>'name' AS name
-                 FROM jsonb_array_elements(o.items) AS elem
+                 FROM jsonb_array_elements(COALESCE(o.items, '[]'::jsonb)) AS elem
                  LIMIT 1
-             ) oi ON true
+             ) oi ON o.id IS NOT NULL
              WHERE b.store_id    = $1
                AND b.booking_date = $2
              ORDER BY b.booking_time ASC, sm.name ASC`,
