@@ -114,7 +114,7 @@ const CustomerOrderController = {
                         let staffId = null;
                         if (storeUuid && slot.staffName) {
                             const staffRow = await pool.query(
-                                `SELECT id FROM service.staff_members WHERE store_id = $1 AND name = $2 LIMIT 1`,
+                                `SELECT id FROM service.staff_members WHERE store_id = $1::text AND name = $2 LIMIT 1`,
                                 [storeUuid, slot.staffName || item.staffName]
                             );
                             staffId = staffRow.rows[0]?.id || null;

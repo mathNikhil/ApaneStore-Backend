@@ -66,7 +66,7 @@ router.get('/', async (req, res) => {
         const { rows: staffList } = await pool.query(
             `SELECT id, name, phone, work_start, work_end
              FROM service.staff_members
-             WHERE store_id = $1 AND is_active = true
+             WHERE store_id = $1::text AND is_active = true
              ORDER BY name`,
             [storeIntId]
         );
