@@ -119,20 +119,31 @@ const SlotsController = {
                 }
             }
 
-            // bookingCounts[startTime][staffId|'any'] = count
-            // For legacy rows staff_id = null → they count against all staff equally (old behaviour)
-            // Count bookings per slot-start per staff
-            const staffBookedAt = {};  // staffId → Set of startTime strings they're busy at
+            // Build busy intervals per staff member.
+            // A staff member is busy for the full duration of each booked slot,
+            // so we store [busyStart, busyEnd) ranges and check overlap — not
+            // just exact start-time matches — to prevent double-booking during
+            // an ongoing session.
+            const staffBusyRanges = {};  // staffId → [{start: mins, end: mins}]
             bookingRows.forEach(b => {
-                const t = b.booking_time.substring(0, 5);
+                const t   = b.booking_time.substring(0, 5);
                 const sid = b.staff_id;
+                const dur = parseInt(b.duration_mins) || duration;
                 if (sid != null) {
-                    if (!staffBookedAt[sid]) staffBookedAt[sid] = new Set();
-                    staffBookedAt[sid].add(t);
+                    if (!staffBusyRanges[sid]) staffBusyRanges[sid] = [];
+                    staffBusyRanges[sid].push({ start: toMins(t), end: toMins(t) + dur });
                 }
             });
 
-            // Also count legacy/unassigned bookings per slot
+            // Helper: is a staff member busy during [slotStart, slotStart+duration)?
+            const isStaffBusy = (staffId, slotStartMins) => {
+                const slotEnd = slotStartMins + duration;
+                return (staffBusyRanges[staffId] || []).some(r => slotStartMins < r.end && slotEnd > r.start);
+            };
+
+            // Count legacy/unassigned bookings per slot start-time
+            // (these have no staff_id so we can't do overlap check — count them
+            //  as capacity consumers against the whole staff pool)
             const legacyCountAt = {};
             bookingRows.filter(b => b.staff_id == null).forEach(b => {
                 const t = b.booking_time.substring(0, 5);
@@ -156,12 +167,9 @@ const SlotsController = {
 
                 if (isAllStaff) {
                     // ── All Staff mode ─────────────────────────────────────────
-                    // A slot is available if at least one active staff member is free.
-                    // "free" = not booked at this startTime in service.bookings.
-                    const freeStaff = activeStaffList.filter(s => {
-                        const busyTimes = staffBookedAt[s.id] || new Set();
-                        return !busyTimes.has(startTime);
-                    });
+                    // A slot is available if at least one active staff member is
+                    // free for the full slot duration (overlap-aware check).
+                    const freeStaff = activeStaffList.filter(s => !isStaffBusy(s.id, current));
 
                     // Legacy unassigned bookings consume from the total capacity
                     const legacyBooked = legacyCountAt[startTime] || 0;
@@ -178,8 +186,9 @@ const SlotsController = {
                     });
                 } else {
                     // ── Specific staff mode ────────────────────────────────────
-                    const busyTimes = targetStaffId ? (staffBookedAt[targetStaffId] || new Set()) : new Set();
-                    const isBooked  = busyTimes.has(startTime);
+                    // Check full overlap: is this staff busy at any point during
+                    // [current, current+duration)?
+                    const isBooked = targetStaffId ? isStaffBusy(targetStaffId, current) : false;
 
                     slots.push({
                         startTime,
