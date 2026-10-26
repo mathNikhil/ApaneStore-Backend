@@ -118,11 +118,28 @@ router.patch('/:bookingId/status', async (req, res) => {
             `UPDATE service.bookings
              SET status = $1, updated_at = NOW()
              WHERE id = $2 AND store_id = $3
-             RETURNING id, status`,
+             RETURNING id, status, order_id::text AS order_id`,
             [status, bookingId, storeIntId]
         );
 
         if (!rows.length) return res.status(404).json({ success: false, error: 'Booking not found' });
+
+        // Mirror status change to the linked order so customer sees it on storefront
+        const ORDER_STATUS_MAP = {
+            confirmed:  'confirmed',
+            in_session: 'processing',
+            completed:  'delivered',
+            cancelled:  'cancelled',
+            no_show:    'cancelled',
+        };
+        const orderStatus = ORDER_STATUS_MAP[status];
+        if (orderStatus && rows[0].order_id) {
+            await pool.query(
+                `UPDATE orders SET status = $1, updated_at = NOW()
+                 WHERE order_id = $2`,
+                [orderStatus, rows[0].order_id]
+            ).catch(e => console.warn('⚠️ Order status sync failed:', e.message));
+        }
 
         res.json({ success: true, data: rows[0] });
     } catch (err) {
