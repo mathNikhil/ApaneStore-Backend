@@ -26,9 +26,19 @@ const storeAdminAuth = async (req, res, next) => {
             return res.status(401).json({ success: false, error: 'No session token provided' });
         }
 
+        // Resolve storeId (may be varchar 'STORE_...' or integer string) → integer PK
+        const storeRow = await pool.query(
+            `SELECT id FROM stores WHERE store_id = $1 OR (id::text = $1 AND $1 ~ '^[0-9]+$') LIMIT 1`,
+            [String(storeId)]
+        );
+        if (!storeRow.rows.length) {
+            return res.status(404).json({ success: false, error: 'Store not found' });
+        }
+        const storeIntId = storeRow.rows[0].id;
+
         const result = await pool.query(
             'SELECT store_id, active_session_token, session_last_active, branch_id FROM store_admin_credentials WHERE store_id = $1',
-            [storeId]
+            [storeIntId]
         );
 
         if (result.rows.length === 0 || result.rows[0].active_session_token !== token) {
@@ -40,7 +50,7 @@ const storeAdminAuth = async (req, res, next) => {
         if (Date.now() - lastActive > IDLE_TIMEOUT_MS) {
             await pool.query(
                 'UPDATE store_admin_credentials SET active_session_token = NULL WHERE store_id = $1',
-                [storeId]
+                [storeIntId]
             );
             return res.status(401).json({ success: false, error: 'Session expired due to inactivity. Please login again.' });
         }
@@ -48,7 +58,7 @@ const storeAdminAuth = async (req, res, next) => {
         // Sliding window — every valid request refreshes the idle clock.
         await pool.query(
             'UPDATE store_admin_credentials SET session_last_active = NOW() WHERE store_id = $1',
-            [storeId]
+            [storeIntId]
         );
 
         req.adminId = `store-admin:${storeId}`;
