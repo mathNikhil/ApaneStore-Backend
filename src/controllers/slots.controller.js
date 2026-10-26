@@ -1,6 +1,32 @@
 const pool = require('../config/database');
 
 const SlotsController = {
+    // GET /api/store/:storeId/staff
+    // Returns active staff members for the store (public, no auth required)
+    getStaffList: async (req, res) => {
+        try {
+            const { storeId } = req.params;
+            const storeResult = await pool.query(
+                'SELECT store_id FROM stores WHERE id = $1',
+                [storeId]
+            );
+            if (storeResult.rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+            const { store_id: storeUuid } = storeResult.rows[0];
+            const staffRows = await pool.query(
+                `SELECT id, name FROM service.staff_members
+                 WHERE store_id = $1 AND is_active = true
+                 ORDER BY name`,
+                [storeUuid]
+            ).catch(() => ({ rows: [] }));
+            res.json({ success: true, data: staffRows.rows });
+        } catch (error) {
+            console.error('Staff list error:', error);
+            res.status(500).json({ success: false, error: 'Failed to get staff list' });
+        }
+    },
+
     // GET /api/store/:storeId/slots?date=2026-09-14&serviceDuration=30&staffName=Deepika+Mathur
     //
     // staffName behaviour:

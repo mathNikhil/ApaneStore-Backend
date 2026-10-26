@@ -470,6 +470,7 @@ app.use('/api/store/:storeId/auth/otp', customerOtpLimiter);
 app.use('/api/store/:storeId/auth', customerRoutes);
 app.use('/api/store/:storeId/cart', customerCartRoutes);
 app.use('/api/store/:storeId/slots', require('./routes/slots.routes'));
+app.use('/api/store/:storeId/staff', require('./routes/staff.routes'));
 app.use('/api/store/:storeId/inventory', require('./routes/inventory.routes'));
 app.use('/api/store/:storeId/orders', customerOrderRoutes);
 app.use('/api/store/:storeId/customers/me', customerProfileRoutes);
