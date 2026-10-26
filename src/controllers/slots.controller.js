@@ -6,13 +6,21 @@ const SlotsController = {
     getStaffList: async (req, res) => {
         try {
             const { storeId } = req.params;
-            // storeId from the URL is the string store_id (e.g. "STORE_1792939712558")
-            // service.staff_members.store_id is also that string — query directly
+            // storeId may be integer id or string store_id — resolve to store_id UUID first
+            const storeRow = await pool.query(
+                `SELECT store_id FROM stores
+                 WHERE store_id = $1
+                    OR (id::text = $1 AND $1 ~ '^[0-9]+$')
+                 LIMIT 1`,
+                [String(storeId)]
+            ).catch(() => ({ rows: [] }));
+            const resolvedStoreId = storeRow.rows[0]?.store_id || storeId;
+
             const staffRows = await pool.query(
                 `SELECT id, name FROM service.staff_members
                  WHERE store_id = $1 AND is_active = true
                  ORDER BY name`,
-                [storeId]
+                [resolvedStoreId]
             ).catch(() => ({ rows: [] }));
             res.json({ success: true, data: staffRows.rows });
         } catch (error) {
@@ -37,10 +45,14 @@ const SlotsController = {
             }
 
             // Get store booking config
-            // storeId is the string store_id (e.g. "STORE_1792939712558"), not the integer id
+            // storeId may be either the string store_id ("STORE_...") or the integer id —
+// the live storefront passes the integer id; match either column.
             const storeResult = await pool.query(
-                'SELECT store_id, config FROM stores WHERE store_id = $1',
-                [storeId]
+                `SELECT store_id, config FROM stores
+                 WHERE store_id = $1
+                    OR (id::text = $1 AND $1 ~ '^[0-9]+$')
+                 LIMIT 1`,
+                [String(storeId)]
             );
 
             if (storeResult.rows.length === 0) {
