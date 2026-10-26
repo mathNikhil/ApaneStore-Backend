@@ -145,7 +145,7 @@ router.patch('/:bookingId/status', async (req, res) => {
             in_session: 'processing',
             completed:  'delivered',
             cancelled:  'cancelled',
-            no_show:    'cancelled',
+            // no_show is internal — don't change the customer's order status
         };
         const orderStatus = ORDER_STATUS_MAP[status];
         if (orderStatus && rows[0].order_id) {
