@@ -179,15 +179,29 @@ async function up() {
         `);
 
         if (oldTableExists.length > 0) {
+            // Get actual columns of old table so we only select what exists
+            const { rows: oldCols } = await client.query(`
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'service_bookings'
+            `);
+            const colNames = oldCols.map(r => r.column_name);
+            const hasUpdatedAt   = colNames.includes('updated_at');
+            const hasCreatedAt   = colNames.includes('created_at');
+            const hasDuration    = colNames.includes('duration_mins');
+            const hasStatus      = colNames.includes('status');
+
             await client.query(`
                 INSERT INTO service.bookings
                     (store_id, order_id, booking_date, booking_time, duration_mins, status, created_at, updated_at)
                 SELECT
-                    store_id, order_id, booking_date, booking_time,
-                    COALESCE(duration_mins, 60),
-                    COALESCE(status, 'pending'),
-                    COALESCE(created_at, NOW()),
-                    COALESCE(updated_at, NOW())
+                    store_id,
+                    order_id,
+                    booking_date,
+                    booking_time,
+                    ${hasDuration  ? 'COALESCE(duration_mins, 60)' : '60'},
+                    ${hasStatus    ? "COALESCE(status, 'pending')" : "'pending'"},
+                    ${hasCreatedAt ? 'COALESCE(created_at, NOW())'  : 'NOW()'},
+                    ${hasUpdatedAt ? 'COALESCE(updated_at, NOW())'  : 'NOW()'}
                 FROM public.service_bookings
                 ON CONFLICT DO NOTHING
             `);
