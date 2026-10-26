@@ -140,14 +140,22 @@ async function up() {
         `);
 
         // ─────────────────────────────────────────────────────────
-        // 5. Add duration_mins to products table
+        // 5. Add duration_mins to products table (if it exists)
         //    Replaces the "60 min" size-field hack.
-        //    Only meaningful for service store products.
         // ─────────────────────────────────────────────────────────
-        await client.query(`
-            ALTER TABLE public.products
-            ADD COLUMN IF NOT EXISTS duration_mins INT DEFAULT NULL
+        const { rows: productsExists } = await client.query(`
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'products' LIMIT 1
         `);
+        if (productsExists.length > 0) {
+            await client.query(`
+                ALTER TABLE public.products
+                ADD COLUMN IF NOT EXISTS duration_mins INT DEFAULT NULL
+            `);
+            console.log('Added duration_mins to public.products');
+        } else {
+            console.log('public.products not found — skipping duration_mins column (add manually after products table is created)');
+        }
 
         // ─────────────────────────────────────────────────────────
         // 6. Migrate existing public.service_bookings → service.bookings
