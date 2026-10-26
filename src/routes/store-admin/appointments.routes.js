@@ -51,6 +51,9 @@ router.get('/', async (req, res) => {
                 o.customer_phone,
                 o.status          AS order_status,
                 o.total_amount,
+                o.branch_name,
+                o.order_type,
+                o.delivery_address,
                 oi.name           AS service_name
              FROM service.bookings b
              LEFT JOIN service.staff_members sm ON sm.id = b.staff_id
