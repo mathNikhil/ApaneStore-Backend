@@ -66,7 +66,7 @@ router.get('/', async (req, res) => {
                 oi.name           AS service_name
              FROM service.bookings b
              LEFT JOIN service.staff_members sm ON sm.id = b.staff_id
-             LEFT JOIN orders o  ON o.order_id = b.order_id::text
+             LEFT JOIN orders o  ON o.id = b.order_id OR o.order_id = b.order_id::text
              LEFT JOIN LATERAL (
                  SELECT elem->>'name' AS name
                  FROM jsonb_array_elements(o.items) AS elem
@@ -133,7 +133,7 @@ router.patch('/:bookingId/status', async (req, res) => {
             `UPDATE service.bookings
              SET status = $1, updated_at = NOW()
              WHERE id = $2 AND store_id = $3
-             RETURNING id, status, order_id::text AS order_id`,
+             RETURNING id, status, order_id`,
             [status, bookingId, storeIntId]
         );
 
@@ -151,7 +151,7 @@ router.patch('/:bookingId/status', async (req, res) => {
         if (orderStatus && rows[0].order_id) {
             await pool.query(
                 `UPDATE orders SET status = $1, updated_at = NOW()
-                 WHERE order_id = $2`,
+                 WHERE id = $2 OR order_id = $2::text`,
                 [orderStatus, rows[0].order_id]
             ).catch(e => console.warn('⚠️ Order status sync failed:', e.message));
         }
