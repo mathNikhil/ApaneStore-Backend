@@ -33,7 +33,7 @@ async function up() {
         await client.query(`
             CREATE TABLE IF NOT EXISTS service.staff_members (
                 id              SERIAL PRIMARY KEY,
-                store_id        UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+                store_id        UUID NOT NULL REFERENCES public.stores(id) ON DELETE CASCADE,
                 name            VARCHAR(100) NOT NULL,
                 phone           VARCHAR(20),
                 avatar_url      TEXT,
@@ -66,7 +66,7 @@ async function up() {
             CREATE TABLE IF NOT EXISTS service.staff_services (
                 id          SERIAL PRIMARY KEY,
                 staff_id    INT NOT NULL REFERENCES service.staff_members(id) ON DELETE CASCADE,
-                product_id  UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                product_id  UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
                 UNIQUE(staff_id, product_id)
             )
         `);
@@ -91,11 +91,11 @@ async function up() {
         await client.query(`
             CREATE TABLE IF NOT EXISTS service.bookings (
                 id               SERIAL PRIMARY KEY,
-                store_id         UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
-                order_id         UUID REFERENCES orders(id) ON DELETE SET NULL,
-                order_item_id    UUID REFERENCES order_items(id) ON DELETE SET NULL,
+                store_id         UUID NOT NULL REFERENCES public.stores(id) ON DELETE CASCADE,
+                order_id         UUID REFERENCES public.orders(id) ON DELETE SET NULL,
+                order_item_id    UUID REFERENCES public.order_items(id) ON DELETE SET NULL,
                 staff_id         INT REFERENCES service.staff_members(id) ON DELETE SET NULL,
-                product_id       UUID REFERENCES products(id) ON DELETE SET NULL,
+                product_id       UUID REFERENCES public.products(id) ON DELETE SET NULL,
 
                 booking_date     DATE NOT NULL,
                 booking_time     TIME NOT NULL,
