@@ -88,6 +88,56 @@ const CustomerOrderController = {
                 [order.id, phone]
             );
 
+            // ── Service bookings: lock the slots so no other customer can take them ──
+            // Each cart item for a service store carries selectedSlots: [{date, startTime, staffName}]
+            // We write one row per slot into service.bookings so the slot-availability
+            // check (slots.controller) sees them as occupied and blocks overbooking.
+            try {
+                const storeRow = await pool.query(
+                    'SELECT store_id FROM stores WHERE id = $1',
+                    [storeId]
+                );
+                const storeUuid = storeRow.rows[0]?.store_id;
+
+                for (const item of items) {
+                    const slots = item.selectedSlots || [];
+                    if (!slots.length) continue;
+
+                    const duration = parseInt(item.duration) || 60;
+                    const staffName = item.staffName || null;
+
+                    for (const slot of slots) {
+                        // Resolve staff_id from name (best-effort — null is fine, slot still blocks)
+                        let staffId = null;
+                        if (storeUuid && slot.staffName) {
+                            const staffRow = await pool.query(
+                                `SELECT id FROM service.staff_members WHERE store_id = $1 AND name = $2 LIMIT 1`,
+                                [storeUuid, slot.staffName]
+                            );
+                            staffId = staffRow.rows[0]?.id || null;
+                        }
+
+                        await pool.query(
+                            `INSERT INTO service.bookings
+                                (store_id, booking_date, booking_time, duration_mins, staff_id, notes, status)
+                             VALUES ($1, $2, $3, $4, $5, $6, 'confirmed')
+                             ON CONFLICT DO NOTHING`,
+                            [
+                                storeUuid,
+                                slot.date,
+                                slot.startTime,
+                                duration,
+                                staffId,
+                                item.name ? `${item.name} | order ${order.order_id}` : `order ${order.order_id}`,
+                            ]
+                        );
+                    }
+                }
+            } catch (bookingErr) {
+                // Non-fatal: order is already placed, just log and continue
+                console.warn('⚠️ Service booking slots save failed:', bookingErr.message);
+            }
+
             // Auto-add customer to WA contacts using delivery address name + phone
             try {
                 const tenantRes = await pool.query('SELECT tenant_id FROM stores WHERE id = $1', [storeId]);
