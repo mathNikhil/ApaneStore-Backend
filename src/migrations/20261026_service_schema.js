@@ -145,7 +145,7 @@ async function up() {
         //    Only meaningful for service store products.
         // ─────────────────────────────────────────────────────────
         await client.query(`
-            ALTER TABLE products
+            ALTER TABLE public.products
             ADD COLUMN IF NOT EXISTS duration_mins INT DEFAULT NULL
         `);
 
@@ -156,7 +156,7 @@ async function up() {
         const { rows: oldTableExists } = await client.query(`
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = 'public'
-            AND table_name = 'service_bookings'
+              AND table_name = 'service_bookings'
             LIMIT 1
         `);
 
