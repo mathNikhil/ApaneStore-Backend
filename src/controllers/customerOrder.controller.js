@@ -121,18 +121,21 @@ const CustomerOrderController = {
                             staffId = staffRow.rows[0]?.id || null;
                         }
 
+                        const bookingServiceType = (orderType === 'delivery' || orderType === 'home_visit' || orderType === 'homevisit') ? 'homevisit' : 'inshop';
                         await pool.query(
                             `INSERT INTO service.bookings
-                                (store_id, booking_date, booking_time, duration_mins, staff_id, notes, status)
-                             VALUES ($1, $2, $3, $4, $5, $6, 'confirmed')
+                                (store_id, order_id, booking_date, booking_time, duration_mins, staff_id, notes, status, service_type)
+                             VALUES ($1, $2, $3, $4, $5, $6, $7, 'confirmed', $8)
                              ON CONFLICT DO NOTHING`,
                             [
                                 storeIntId,
+                                order.id,
                                 slot.date,
                                 slot.startTime,
                                 duration,
                                 staffId,
                                 item.name ? `${item.name} | order ${order.order_id}` : `order ${order.order_id}`,
+                                bookingServiceType,
                             ]
                         );
                     }
