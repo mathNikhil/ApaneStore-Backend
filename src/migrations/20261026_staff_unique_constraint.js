@@ -19,10 +19,20 @@ async function up() {
         await client.query('BEGIN');
 
         // Unique constraint so ON CONFLICT (store_id, name) works in upsert
-        await client.query(`
-            ALTER TABLE service.staff_members
-            ADD CONSTRAINT IF NOT EXISTS uq_staff_store_name UNIQUE (store_id, name)
+        // Check first — ADD CONSTRAINT IF NOT EXISTS is not supported in PG < 15
+        const { rows } = await client.query(`
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uq_staff_store_name'
+              AND conrelid = 'service.staff_members'::regclass
         `);
+        if (rows.length === 0) {
+            await client.query(`
+                ALTER TABLE service.staff_members
+                ADD CONSTRAINT uq_staff_store_name UNIQUE (store_id, name)
+            `);
+        } else {
+            console.log('ℹ️  Constraint uq_staff_store_name already exists — skipping');
+        }
 
         await client.query('COMMIT');
         console.log('✅  Migration 20261026_staff_unique_constraint complete');
