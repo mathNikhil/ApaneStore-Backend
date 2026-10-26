@@ -249,7 +249,7 @@ class StoreController {
                     categoryImageSize: categoryImageSize !== undefined ? categoryImageSize : existingProducts.categoryImageSize,
                     autoSlideProductImages: autoSlideProductImages !== undefined ? autoSlideProductImages : existingProducts.autoSlideProductImages,
                 },
-                booking: bookingSettings !== undefined ? bookingSettings : existingConfig.booking,
+                booking: bookingSettings !== undefined ? { ...(existingConfig.booking || {}), ...bookingSettings } : existingConfig.booking,
                 cart: cartSettings !== undefined ? cartSettings : existingConfig.cart,
                 payment: paymentSettings !== undefined ? paymentSettings : existingConfig.payment,
                 address: addressSettings !== undefined ? addressSettings : existingConfig.address,
