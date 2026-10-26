@@ -94,10 +94,13 @@ const CustomerOrderController = {
             // check (slots.controller) sees them as occupied and blocks overbooking.
             try {
                 const storeRow = await pool.query(
-                    'SELECT store_id FROM stores WHERE id = $1',
-                    [storeId]
+                    `SELECT id AS store_int_id FROM stores
+                     WHERE store_id = $1
+                        OR (id::text = $1 AND $1 ~ '^[0-9]+$')
+                     LIMIT 1`,
+                    [String(storeId)]
                 );
-                const storeUuid = storeRow.rows[0]?.store_id;
+                const storeUuid = storeRow.rows[0]?.store_int_id;
 
                 for (const item of items) {
                     const slots = item.selectedSlots || [];
@@ -112,7 +115,7 @@ const CustomerOrderController = {
                         if (storeUuid && slot.staffName) {
                             const staffRow = await pool.query(
                                 `SELECT id FROM service.staff_members WHERE store_id = $1 AND name = $2 LIMIT 1`,
-                                [storeUuid, slot.staffName]
+                                [storeUuid, slot.staffName || item.staffName]
                             );
                             staffId = staffRow.rows[0]?.id || null;
                         }

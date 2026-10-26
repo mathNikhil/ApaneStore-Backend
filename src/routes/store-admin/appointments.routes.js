@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 
         // Resolve storeId → store_id UUID (same pattern as slots.controller)
         const storeRow = await pool.query(
-            `SELECT store_id, config FROM stores
+            `SELECT id AS store_int_id, config FROM stores
              WHERE store_id = $1
                 OR (id::text = $1 AND $1 ~ '^[0-9]+$')
              LIMIT 1`,
@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
         if (!storeRow.rows.length) {
             return res.status(404).json({ success: false, error: 'Store not found' });
         }
-        const { store_id: storeUuid } = storeRow.rows[0];
+        const storeIntId = storeRow.rows[0].store_int_id;
 
         // Pull bookings from service.bookings joined with staff + orders
         const { rows: bookings } = await pool.query(
@@ -59,7 +59,7 @@ router.get('/', async (req, res) => {
              WHERE b.store_id    = $1
                AND b.booking_date = $2
              ORDER BY b.booking_time ASC, sm.name ASC`,
-            [storeUuid, date]
+            [storeIntId, date]
         );
 
         // Also fetch active staff so we can show columns for staff with no bookings
@@ -68,7 +68,7 @@ router.get('/', async (req, res) => {
              FROM service.staff_members
              WHERE store_id = $1 AND is_active = true
              ORDER BY name`,
-            [storeUuid]
+            [storeIntId]
         );
 
         // Pull store booking hours from config
@@ -104,21 +104,21 @@ router.patch('/:bookingId/status', async (req, res) => {
         }
 
         const storeRow = await pool.query(
-            `SELECT store_id FROM stores
+            `SELECT id AS store_int_id FROM stores
              WHERE store_id = $1
                 OR (id::text = $1 AND $1 ~ '^[0-9]+$')
              LIMIT 1`,
             [String(storeId)]
         );
         if (!storeRow.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
-        const { store_id: storeUuid } = storeRow.rows[0];
+        const storeIntId = storeRow.rows[0].store_int_id;
 
         const { rows } = await pool.query(
             `UPDATE service.bookings
              SET status = $1, updated_at = NOW()
              WHERE id = $2 AND store_id = $3
              RETURNING id, status`,
-            [status, bookingId, storeUuid]
+            [status, bookingId, storeIntId]
         );
 
         if (!rows.length) return res.status(404).json({ success: false, error: 'Booking not found' });
