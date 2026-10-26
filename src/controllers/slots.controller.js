@@ -6,19 +6,13 @@ const SlotsController = {
     getStaffList: async (req, res) => {
         try {
             const { storeId } = req.params;
-            const storeResult = await pool.query(
-                'SELECT store_id FROM stores WHERE id = $1',
-                [storeId]
-            );
-            if (storeResult.rows.length === 0) {
-                return res.status(404).json({ success: false, error: 'Store not found' });
-            }
-            const { store_id: storeUuid } = storeResult.rows[0];
+            // storeId from the URL is the string store_id (e.g. "STORE_1792939712558")
+            // service.staff_members.store_id is also that string — query directly
             const staffRows = await pool.query(
                 `SELECT id, name FROM service.staff_members
                  WHERE store_id = $1 AND is_active = true
                  ORDER BY name`,
-                [storeUuid]
+                [storeId]
             ).catch(() => ({ rows: [] }));
             res.json({ success: true, data: staffRows.rows });
         } catch (error) {
@@ -43,8 +37,9 @@ const SlotsController = {
             }
 
             // Get store booking config
+            // storeId is the string store_id (e.g. "STORE_1792939712558"), not the integer id
             const storeResult = await pool.query(
-                'SELECT store_id, config FROM stores WHERE id = $1',
+                'SELECT store_id, config FROM stores WHERE store_id = $1',
                 [storeId]
             );
 
