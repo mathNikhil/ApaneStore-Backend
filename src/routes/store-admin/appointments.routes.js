@@ -44,7 +44,14 @@ router.get('/', async (req, res) => {
                 b.duration_mins,
                 b.status          AS booking_status,
                 b.computed_price,
-                b.service_type,
+                COALESCE(b.service_type,
+                    CASE o.order_type
+                        WHEN 'delivery' THEN 'homevisit'
+                        WHEN 'home_visit' THEN 'homevisit'
+                        WHEN 'homevisit' THEN 'homevisit'
+                        ELSE 'instore'
+                    END
+                ) AS service_type,
                 b.customer_address,
                 b.notes,
                 COALESCE(o.dine_in_customer_name, o.customer_name) AS customer_name,
