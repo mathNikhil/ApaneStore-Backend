@@ -66,7 +66,7 @@ async function up() {
             CREATE TABLE IF NOT EXISTS service.staff_services (
                 id          SERIAL PRIMARY KEY,
                 staff_id    INT NOT NULL REFERENCES service.staff_members(id) ON DELETE CASCADE,
-                product_id  UUID NOT NULL,
+                product_id  TEXT NOT NULL,
                 UNIQUE(staff_id, product_id)
             )
         `);
@@ -95,7 +95,7 @@ async function up() {
                 order_id         UUID,
                 order_item_id    UUID,
                 staff_id         INT REFERENCES service.staff_members(id) ON DELETE SET NULL,
-                product_id       UUID,
+                product_id       TEXT,
 
                 booking_date     DATE NOT NULL,
                 booking_time     TIME NOT NULL,
@@ -140,22 +140,32 @@ async function up() {
         `);
 
         // ─────────────────────────────────────────────────────────
-        // 5. Add duration_mins to products table (if it exists)
-        //    Replaces the "60 min" size-field hack.
+        // 5. service_items
+        //    Service-specific metadata per product, keyed by
+        //    store_id + product_id (stored as TEXT — no FK so we
+        //    don't couple to whatever structure products uses).
+        //    duration_mins: how long this service takes
+        //    base_price:    price before staff premium (mirrors
+        //                   product price but locked here for
+        //                   booking price calculation)
         // ─────────────────────────────────────────────────────────
-        const { rows: productsExists } = await client.query(`
-            SELECT 1 FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'products' LIMIT 1
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS service.service_items (
+                id           SERIAL PRIMARY KEY,
+                store_id     UUID NOT NULL,
+                product_id   TEXT NOT NULL,
+                duration_mins INT NOT NULL DEFAULT 60,
+                base_price   DECIMAL(10,2),
+                created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                UNIQUE(store_id, product_id)
+            )
         `);
-        if (productsExists.length > 0) {
-            await client.query(`
-                ALTER TABLE public.products
-                ADD COLUMN IF NOT EXISTS duration_mins INT DEFAULT NULL
-            `);
-            console.log('Added duration_mins to public.products');
-        } else {
-            console.log('public.products not found — skipping duration_mins column (add manually after products table is created)');
-        }
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_service_items_store_product
+            ON service.service_items(store_id, product_id)
+        `);
 
         // ─────────────────────────────────────────────────────────
         // 6. Migrate existing public.service_bookings → service.bookings
