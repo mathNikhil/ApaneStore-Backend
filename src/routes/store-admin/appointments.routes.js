@@ -44,12 +44,14 @@ router.get('/', async (req, res) => {
                 b.duration_mins,
                 b.status          AS booking_status,
                 b.computed_price,
-                COALESCE(b.service_type,
-                    CASE o.order_type
-                        WHEN 'delivery' THEN 'homevisit'
-                        WHEN 'home_visit' THEN 'homevisit'
-                        WHEN 'homevisit' THEN 'homevisit'
-                        ELSE 'instore'
+                COALESCE(
+                    b.service_type,
+                    CASE
+                        WHEN o.order_type IN ('delivery','home_visit','homevisit') THEN 'homevisit'
+                        WHEN o.delivery_address IS NOT NULL
+                             AND o.delivery_address::text NOT IN ('null','{}','""','') THEN 'homevisit'
+                        WHEN o.order_id IS NOT NULL THEN 'instore'
+                        ELSE NULL
                     END
                 ) AS service_type,
                 b.customer_address,
