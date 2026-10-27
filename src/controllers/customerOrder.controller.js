@@ -122,10 +122,14 @@ const CustomerOrderController = {
                         }
 
                         const bookingServiceType = (orderType === 'delivery' || orderType === 'home_visit' || orderType === 'homevisit') ? 'homevisit' : 'inshop';
+                        // Store the raw staff name so the appointments scheduler can
+                        // place the booking in the correct column even if the id
+                        // lookup above returned null (case mismatch, trim difference, etc.)
+                        const requestedStaffName = (staffName && staffName !== 'All Staff') ? staffName.trim() : null;
                         await pool.query(
                             `INSERT INTO service.bookings
-                                (store_id, order_id, booking_date, booking_time, duration_mins, staff_id, notes, status, service_type)
-                             VALUES ($1, $2, $3, $4, $5, $6, $7, 'confirmed', $8)
+                                (store_id, order_id, booking_date, booking_time, duration_mins, staff_id, requested_staff_name, notes, status, service_type)
+                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', $9)
                              ON CONFLICT DO NOTHING`,
                             [
                                 storeIntId,
@@ -134,6 +138,7 @@ const CustomerOrderController = {
                                 slot.startTime,
                                 duration,
                                 staffId,
+                                requestedStaffName,
                                 item.name ? `${item.name} | order ${order.order_id}` : `order ${order.order_id}`,
                                 bookingServiceType,
                             ]

@@ -38,7 +38,7 @@ router.get('/', async (req, res) => {
                 b.order_id,
                 b.order_item_id,
                 b.staff_id,
-                sm.name           AS staff_name,
+                COALESCE(sm.name, b.requested_staff_name) AS staff_name,
                 b.booking_date,
                 b.booking_time,
                 b.duration_mins,
