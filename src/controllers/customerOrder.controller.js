@@ -110,12 +110,12 @@ const CustomerOrderController = {
                     const duration = parseInt(item.duration) || 60;
 
                     for (const slot of slots) {
-                        // Resolve staff_id from name (best-effort — null is fine, slot still blocks)
+                        // Resolve staff_id from name — use ILIKE so case differences don't cause null
                         let staffId = null;
                         const staffName = slot.staffName || item.staffName || null;
-                        if (storeStrId && staffName) {
+                        if (storeStrId && staffName && staffName !== 'All Staff') {
                             const staffRow = await pool.query(
-                                `SELECT id FROM service.staff_members WHERE store_id = $1 AND name = $2 LIMIT 1`,
+                                `SELECT id FROM service.staff_members WHERE store_id = $1 AND TRIM(name) ILIKE TRIM($2) LIMIT 1`,
                                 [storeStrId, staffName]
                             );
                             staffId = staffRow.rows[0]?.id || null;
