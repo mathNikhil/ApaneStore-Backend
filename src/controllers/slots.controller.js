@@ -6,9 +6,9 @@ const SlotsController = {
     getStaffList: async (req, res) => {
         try {
             const { storeId } = req.params;
-            // storeId may be integer id or string store_id — resolve to store_id UUID first
+            // storeId may be integer id or string store_id — resolve to store_id UUID + config first
             const storeRow = await pool.query(
-                `SELECT store_id FROM stores
+                `SELECT store_id, config FROM stores
                  WHERE store_id = $1
                     OR (id::text = $1 AND $1 ~ '^[0-9]+$')
                  LIMIT 1`,
@@ -17,11 +17,27 @@ const SlotsController = {
             const resolvedStoreId = storeRow.rows[0]?.store_id || storeId;
 
             const staffRows = await pool.query(
-                `SELECT id, name FROM service.staff_members
+                `SELECT id, name, premium_percent FROM service.staff_members
                  WHERE store_id = $1 AND is_active = true
                  ORDER BY name`,
                 [resolvedStoreId]
             ).catch(() => ({ rows: [] }));
+
+            // If DB table is empty, fall back to booking config JSON
+            // (store owner hasn't synced staff yet, but they exist in config)
+            if (staffRows.rows.length === 0) {
+                const config = storeRow.rows[0]?.config || {};
+                const booking = config.booking || config.products?.bookingSettings || {};
+                const configStaff = (booking.staffMembers || [])
+                    .filter(s => s.name && s.name.toLowerCase() !== 'all staff')
+                    .map(s => ({
+                        id: null,
+                        name: s.name.trim(),
+                        premium_percent: parseFloat(s.premiumPercent) || 0,
+                    }));
+                return res.json({ success: true, data: configStaff });
+            }
+
             res.json({ success: true, data: staffRows.rows });
         } catch (error) {
             console.error('Staff list error:', error);
@@ -98,7 +114,15 @@ const SlotsController = {
                 [storeUuid]
             ).catch(() => ({ rows: [] }));
 
-            activeStaffList = staffRows.rows;   // may be empty if table doesn't exist yet
+            if (staffRows.rows.length > 0) {
+                activeStaffList = staffRows.rows;
+            } else {
+                // Fall back to booking config JSON when DB table is empty
+                const configStaff = (booking.staffMembers || [])
+                    .filter(s => s.name && s.name.toLowerCase() !== 'all staff')
+                    .map((s, i) => ({ id: `cfg_${i}`, name: s.name.trim() }));
+                activeStaffList = configStaff;
+            }
 
             if (!isAllStaff) {
                 const found = activeStaffList.find(s => s.name === staffName);
