@@ -45,10 +45,10 @@ async function up() {
             CREATE TABLE IF NOT EXISTS platform_coupon_claims (
                 id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 coupon_id   UUID NOT NULL REFERENCES platform_coupons(id) ON DELETE CASCADE,
-                store_id    UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+                store_id    INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
 
                 -- The discount_codes row created in that store
-                discount_code_id UUID REFERENCES discount_codes(id) ON DELETE SET NULL,
+                discount_code_id INTEGER REFERENCES discount_codes(id) ON DELETE SET NULL,
 
                 claimed_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
