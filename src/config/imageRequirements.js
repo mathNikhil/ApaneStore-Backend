@@ -58,12 +58,14 @@ const IMAGE_REQUIREMENTS = {
         processing: { width: 1200, height: 1200, fit: 'inside' }
     },
     STAFF_PHOTO: {
-        display: { hint: 'Max 2MB • JPG/PNG/WebP • Square preferred' },
+        // Output target: ~5KB — 120×120 WebP at quality 55 ≈ 3–8KB for a face photo.
+        // Accept up to 5MB input (phone photos); sharp handles the heavy compression.
+        display: { hint: 'Square face photo • Saved as 120×120 WebP (~5KB) • Max upload 5MB' },
         validation: {
-            maxSize: 2 * 1024 * 1024,
+            maxSize: 5 * 1024 * 1024,
             allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'],
         },
-        processing: { width: 400, height: 400, fit: 'cover' }
+        processing: { width: 120, height: 120, fit: 'cover', quality: 55 }
     }
 };
 

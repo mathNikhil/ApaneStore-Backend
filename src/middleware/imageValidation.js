@@ -14,10 +14,13 @@ async function processImage(buffer, imageType) {
     const processing = getProcessingRules(imageType);
     if (!processing) return buffer;
     try {
+        // Use per-type quality when set (e.g. STAFF_PHOTO: 55 → ~5KB output).
+        // All other types fall back to the default of 90.
+        const webpQuality = processing.quality ?? 90;
         return await sharp(buffer)
             .rotate()
             .resize(processing.width, processing.height, { fit: processing.fit || 'cover', position: 'center' })
-            .webp({ quality: 90, effort: 4 })
+            .webp({ quality: webpQuality, effort: 6 })
             .withMetadata(false)
             .toBuffer();
     } catch (error) {
