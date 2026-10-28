@@ -636,7 +636,7 @@ router.get('/market/all-invoices', authenticateAdmin, async (req, res) => {
              t.company_name as tenant_name, t.email as tenant_email,
              p.name as plan_name
       FROM cashfree_pending_orders cpo
-      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::uuid
+      LEFT JOIN tenants t ON t.id::text = cpo.order_data->>'tenant_id'
       LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
       WHERE cpo.order_id LIKE 'WA_%' AND cpo.status = 'paid'
       ORDER BY cpo.created_at DESC
