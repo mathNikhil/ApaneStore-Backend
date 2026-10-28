@@ -29,23 +29,29 @@ class PlatformCouponsController {
                 name, code, unit, value,
                 min_order_value = 0,
                 max_stores = null,
-                validity_days = 30,
-                max_uses_per_store = null,
+                start_at,
+                end_at,
                 trigger_type = 'store_publish',
             } = req.body;
 
             if (!name || !code || !unit || value === undefined) {
                 return res.status(400).json({ success: false, error: 'name, code, unit, value are required' });
             }
+            if (!start_at || !end_at) {
+                return res.status(400).json({ success: false, error: 'start_at and end_at are required' });
+            }
+            if (new Date(end_at) <= new Date(start_at)) {
+                return res.status(400).json({ success: false, error: 'end_at must be after start_at' });
+            }
 
             const upper = code.trim().toUpperCase();
 
             const result = await pool.query(`
                 INSERT INTO platform_coupons
-                    (name, code, unit, value, min_order_value, max_stores, validity_days, max_uses_per_store, trigger_type)
+                    (name, code, unit, value, min_order_value, max_stores, start_at, end_at, trigger_type)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
                 RETURNING *
-            `, [name, upper, unit, value, min_order_value, max_stores, validity_days, max_uses_per_store, trigger_type]);
+            `, [name, upper, unit, value, min_order_value, max_stores, start_at, end_at, trigger_type]);
 
             res.status(201).json({ success: true, data: result.rows[0] });
         } catch (err) {

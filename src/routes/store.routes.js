@@ -116,13 +116,15 @@ router.post('/:id/validate-platform-coupon', async (req, res) => {
         );
         if (!storeCheck.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
 
-        // Find the coupon
+        // Find the coupon (checks status, trigger, limits, and validity window)
         const couponRes = await pool.query(
             `SELECT * FROM platform_coupons
              WHERE code = $1
                AND status = 'active'
                AND (trigger_type = $2 OR trigger_type = 'both')
-               AND (max_stores IS NULL OR claimed_count < max_stores)`,
+               AND (max_stores IS NULL OR claimed_count < max_stores)
+               AND (start_at IS NULL OR NOW() >= start_at)
+               AND (end_at IS NULL OR NOW() <= end_at)`,
             [code.trim().toUpperCase(), trigger_type]
         );
 
