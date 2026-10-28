@@ -15,6 +15,9 @@ const PlatformSettingsController = require('../controllers/platformSettings.cont
 // ✅ Import the admin controller for settings and cleanup
 const adminController = require('../controllers/admin.controller');
 
+// ✅ Platform Coupons
+const PlatformCouponsController = require('../controllers/Admin/platformCoupons.controller');
+
 // ============================================================
 // PUBLIC ROUTES (No Auth Required)
 // ============================================================
@@ -37,7 +40,30 @@ router.delete('/tenants/:id', authenticateAdmin, AdminTenantController.delete);
 router.get('/stores', authenticateAdmin, AdminStoreController.getAll);
 router.get('/stores/:id', authenticateAdmin, AdminStoreController.getById);
 router.delete('/stores/:id', authenticateAdmin, AdminStoreController.delete);
-router.patch('/stores/:id/status', authenticateAdmin, AdminStoreController.changeStoreStatus);
+router.patch('/stores/:id/status', authenticateAdmin, async (req, res, next) => {
+    // Call the standard status change
+    await AdminStoreController.changeStoreStatus(req, res);
+    // After publishing, auto-clone active platform coupons into the store
+    if (req.body.status === 'published' && res.statusCode < 300) {
+        try {
+            await PlatformCouponsController.claimForStore(
+                { params: { storeId: req.params.id } },
+                { json: () => {}, status: () => ({ json: () => {} }) } // silent sink
+            );
+        } catch (e) {
+            // non-fatal — store was published, coupon clone is best-effort
+            console.error('[PLATFORM COUPONS] Auto-claim failed silently:', e.message);
+        }
+    }
+});
+
+// Platform Coupons (super admin)
+router.get('/platform-coupons',                          authenticateAdmin, PlatformCouponsController.getAll);
+router.post('/platform-coupons',                         authenticateAdmin, PlatformCouponsController.create);
+router.delete('/platform-coupons/:id',                   authenticateAdmin, PlatformCouponsController.remove);
+router.patch('/platform-coupons/:id/disable',            authenticateAdmin, PlatformCouponsController.disable);
+router.get('/platform-coupons/:id/claims',               authenticateAdmin, PlatformCouponsController.getClaims);
+router.post('/platform-coupons/claim-for-store/:storeId',authenticateAdmin, PlatformCouponsController.claimForStore);
 
 // ============================================================
 // ✅ PLATFORM SETTINGS (Added)
