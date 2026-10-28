@@ -19,12 +19,12 @@ const authenticate = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Check if tenant exists
+        // Check if tenant exists and is not soft-deleted
         const result = await pool.query(
-            'SELECT id, tenant_id, company_name, email, subscription_tier, status FROM tenants WHERE id = $1 AND is_verified = true',
+            'SELECT id, tenant_id, company_name, email, subscription_tier, status, deleted_at FROM tenants WHERE id = $1 AND is_verified = true',
             [decoded.tenantId]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(401).json({
                 success: false,
@@ -32,7 +32,15 @@ const authenticate = async (req, res, next) => {
             });
         }
 
-        // ✅ Block hidden tenants from using the dashboard at all — this
+        // Block soft-deleted tenants — their account is gone
+        if (result.rows[0].deleted_at !== null) {
+            return res.status(403).json({
+                success: false,
+                error: 'This account has been deleted. Please contact support.'
+            });
+        }
+
+        // Block hidden tenants from using the dashboard at all — this
         // check runs on every request, so it also cuts off access for a
         // tenant who was hidden after already logging in (their existing
         // token would otherwise keep working for up to 7 days).

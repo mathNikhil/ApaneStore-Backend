@@ -85,6 +85,11 @@ class AuthService {
             const tenant = result.rows[0];
             console.log('✅ Tenant found:', tenant.tenant_id);
 
+            // Block soft-deleted tenants
+            if (tenant.deleted_at) {
+                return { success: false, error: 'This account has been deleted. Please contact support.' };
+            }
+
             // Verify password
             const isValid = await bcrypt.compare(password, tenant.password_hash);
             if (!isValid) {
@@ -143,7 +148,7 @@ class AuthService {
     static async loginOrRegisterByPhone(phone) {
         try {
             const existing = await pool.query(
-                `SELECT id, tenant_id, company_name, email, phone, business_type, subscription_tier, is_verified 
+                `SELECT id, tenant_id, company_name, email, phone, business_type, subscription_tier, is_verified, deleted_at
                  FROM tenants WHERE phone = $1`,
                 [phone]
             );
@@ -153,6 +158,10 @@ class AuthService {
 
             if (existing.rows.length > 0) {
                 tenant = existing.rows[0];
+                // Block soft-deleted tenants from OTP login
+                if (tenant.deleted_at) {
+                    return { success: false, error: 'This account has been deleted. Please contact support.' };
+                }
                 if (!tenant.is_verified) {
                     await pool.query('UPDATE tenants SET is_verified = true WHERE id = $1', [tenant.id]);
                     tenant.is_verified = true;

@@ -18,8 +18,9 @@ class AdminTenantController {
                     store_count,
                     is_verified,
                     created_at
-                 FROM tenants 
-                 WHERE business_type IS NULL OR business_type != 'admin'
+                 FROM tenants
+                 WHERE (business_type IS NULL OR business_type != 'admin')
+                   AND deleted_at IS NULL
                  ORDER BY created_at DESC`
             );
 
@@ -63,7 +64,7 @@ class AdminTenantController {
                     is_verified,
                     created_at
                  FROM tenants 
-                 WHERE id = $1 AND (business_type IS NULL OR business_type != 'admin')`,
+                 WHERE id = $1 AND (business_type IS NULL OR business_type != 'admin') AND deleted_at IS NULL`,
                 [id]
             );
 
@@ -123,7 +124,7 @@ class AdminTenantController {
             const { action } = req.body; // 'hide' or 'unhide'
 
             const result = await pool.query(
-                'SELECT status FROM tenants WHERE id = $1 AND (business_type IS NULL OR business_type != \'admin\')',
+                `SELECT status FROM tenants WHERE id = $1 AND (business_type IS NULL OR business_type != 'admin') AND deleted_at IS NULL`,
                 [id]
             );
 
@@ -171,14 +172,17 @@ class AdminTenantController {
         }
     }
 
-    // Delete tenant (Hard delete - removes all data)
+    // Delete tenant (Soft delete - sets deleted_at, preserves revenue data)
     static async delete(req, res) {
         try {
             const { id } = req.params;
 
-            // Check if tenant exists
+            // Check if tenant exists and is not already deleted
             const checkResult = await pool.query(
-                'SELECT id FROM tenants WHERE id = $1 AND (business_type IS NULL OR business_type != \'admin\')',
+                `SELECT id, company_name FROM tenants
+                 WHERE id = $1
+                   AND (business_type IS NULL OR business_type != 'admin')
+                   AND deleted_at IS NULL`,
                 [id]
             );
 
@@ -189,35 +193,17 @@ class AdminTenantController {
                 });
             }
 
-            // Clear FK-constrained tables that don't cascade automatically
-            // tenant_referrals uses different column names
-            await pool.query('DELETE FROM tenant_referrals WHERE referrer_tenant_id = $1 OR referred_tenant_id = $1', [id]);
+            // Soft delete: mark as deleted and deactivate the tenant.
+            // Revenue records (store_subscriptions, cashfree_pending_orders) are NOT touched
+            // so GST/tax reporting remains intact.
+            await pool.query(
+                `UPDATE tenants
+                 SET deleted_at = NOW(), status = 'deleted', updated_at = NOW()
+                 WHERE id = $1`,
+                [id]
+            );
 
-            // WhatsApp tables — production schema has tenant_id FK on these
-            // Delete child rows first (wa_send_log → wa_messages, wa_messages → wa_groups/wa_contacts)
-            await pool.query(`
-                DELETE FROM wa_send_log WHERE message_id IN (
-                    SELECT id FROM wa_messages WHERE tenant_id = $1
-                )`, [id]);
-            await pool.query('DELETE FROM wa_messages  WHERE tenant_id = $1', [id]);
-            await pool.query('DELETE FROM wa_contacts  WHERE tenant_id = $1', [id]);
-            await pool.query('DELETE FROM wa_groups    WHERE tenant_id = $1', [id]);
-            await pool.query('DELETE FROM wa_config    WHERE tenant_id = $1', [id]);
-            await pool.query('DELETE FROM wa_subscriptions WHERE tenant_id = $1', [id]);
-            await pool.query('DELETE FROM wa_daily_usage   WHERE tenant_id = $1', [id]).catch(() => {}); // col may not exist
-
-            // QR / payment tables
-            await pool.query('DELETE FROM qr_service_subscriptions WHERE tenant_id = $1', [id]).catch(() => {});
-            await pool.query('DELETE FROM pending_payments          WHERE tenant_id = $1', [id]).catch(() => {});
-
-            // Misc tables
-            await pool.query('DELETE FROM terms_acceptances         WHERE tenant_id = $1', [id]).catch(() => {});
-            await pool.query('DELETE FROM admin_impersonation_log   WHERE tenant_id = $1', [id]).catch(() => {});
-
-            // Delete tenant (cascade will delete stores → products, orders, etc.)
-            await pool.query('DELETE FROM tenants WHERE id = $1', [id]);
-
-            logger.info(`✅ Tenant ${id} deleted permanently`);
+            logger.info(`✅ Tenant ${id} (${checkResult.rows[0].company_name}) soft-deleted`);
 
             res.status(200).json({
                 success: true,

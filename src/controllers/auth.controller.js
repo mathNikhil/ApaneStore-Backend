@@ -63,7 +63,7 @@ const AuthController = {
             }
 
             const user = result.rows[0];
-            
+
             // In production, use bcrypt.compare()
             if (user.password_hash !== password) {
                 return res.status(401).json({
@@ -72,7 +72,15 @@ const AuthController = {
                 });
             }
 
-            // ✅ Block hidden tenants before issuing a token
+            // Block soft-deleted tenants from logging in
+            if (user.deleted_at !== null && user.deleted_at !== undefined) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'This account has been deleted. Please contact support.'
+                });
+            }
+
+            // Block hidden tenants before issuing a token
             if (user.status === 'hidden') {
                 return res.status(403).json({
                     success: false,
@@ -131,19 +139,27 @@ const discountService = require('../services/discount.service');
                 });
             }
 
-            // ✅ Block hidden tenants right here, before an OTP is ever sent —
-            // otherwise they'd still see the OTP entry screen and only get
-            // blocked after typing a code in, which is confusing. A brand-new
-            // phone number (no tenant row yet) is fine to proceed as normal.
+            // Block hidden or deleted tenants before an OTP is ever sent —
+            // otherwise they'd see the OTP entry screen and only get blocked
+            // after typing a code in, which is confusing. A brand-new phone
+            // number (no tenant row yet) is fine to proceed as normal.
             const existing = await pool.query(
-                'SELECT status FROM tenants WHERE phone = $1',
+                'SELECT status, deleted_at FROM tenants WHERE phone = $1',
                 [phone]
             );
-            if (existing.rows.length > 0 && existing.rows[0].status === 'hidden') {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Your account has been disabled. Please contact support.'
-                });
+            if (existing.rows.length > 0) {
+                if (existing.rows[0].deleted_at) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'This account has been deleted. Please contact support.'
+                    });
+                }
+                if (existing.rows[0].status === 'hidden') {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Your account has been disabled. Please contact support.'
+                    });
+                }
             }
 
             const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
