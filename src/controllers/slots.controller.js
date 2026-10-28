@@ -9,26 +9,28 @@ const toTime = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m
 let holdsTableReady = false;
 async function ensureHoldsTable() {
     if (holdsTableReady) return;
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS service.slot_holds (
-            id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            store_id      TEXT NOT NULL,
-            staff_id      INT  REFERENCES service.staff_members(id) ON DELETE CASCADE,
-            booking_date  DATE NOT NULL,
-            slot_time     TIME NOT NULL,
-            duration_mins INT  NOT NULL DEFAULT 60,
-            expires_at    TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '10 minutes'),
-            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS idx_slot_holds_lookup
-            ON service.slot_holds (store_id, staff_id, booking_date, slot_time)
-            WHERE expires_at > NOW();
-        -- Update any existing holds that were created with 30-min expiry
-        UPDATE service.slot_holds
-            SET expires_at = created_at + INTERVAL '10 minutes'
-            WHERE expires_at > NOW() AND expires_at > created_at + INTERVAL '11 minutes';
-    `).catch(() => {}); // ignore if schema missing — availability still works
-    holdsTableReady = true;
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS service.slot_holds (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                store_id      TEXT NOT NULL,
+                staff_id      INT  REFERENCES service.staff_members(id) ON DELETE CASCADE,
+                booking_date  DATE NOT NULL,
+                slot_time     TIME NOT NULL,
+                duration_mins INT  NOT NULL DEFAULT 60,
+                expires_at    TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '10 minutes'),
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_slot_holds_lookup
+                ON service.slot_holds (store_id, staff_id, booking_date, slot_time, expires_at)
+        `).catch(() => {}); // index creation failure is non-fatal
+        holdsTableReady = true;
+    } catch (err) {
+        console.error('slot_holds table setup error:', err.message);
+        // Don't set holdsTableReady — will retry next request
+    }
 }
 
 const SlotsController = {
