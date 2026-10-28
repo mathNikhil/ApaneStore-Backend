@@ -3,5 +3,7 @@ const router = express.Router({ mergeParams: true });
 const SlotsController = require('../controllers/slots.controller');
 
 router.get('/', SlotsController.getAvailableSlots);
+router.post('/hold', SlotsController.holdSlot);
+router.delete('/hold/:holdId', SlotsController.releaseHold);
 
 module.exports = router;
