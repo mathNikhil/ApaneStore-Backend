@@ -17,12 +17,16 @@ async function ensureHoldsTable() {
             booking_date  DATE NOT NULL,
             slot_time     TIME NOT NULL,
             duration_mins INT  NOT NULL DEFAULT 60,
-            expires_at    TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 minutes'),
+            expires_at    TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '10 minutes'),
             created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_slot_holds_lookup
             ON service.slot_holds (store_id, staff_id, booking_date, slot_time)
             WHERE expires_at > NOW();
+        -- Update any existing holds that were created with 30-min expiry
+        UPDATE service.slot_holds
+            SET expires_at = created_at + INTERVAL '10 minutes'
+            WHERE expires_at > NOW() AND expires_at > created_at + INTERVAL '11 minutes';
     `).catch(() => {}); // ignore if schema missing — availability still works
     holdsTableReady = true;
 }
@@ -322,8 +326,8 @@ const SlotsController = {
 
             // Create hold
             const result = await pool.query(
-                `INSERT INTO service.slot_holds (store_id, staff_id, booking_date, slot_time, duration_mins)
-                 VALUES ($1, $2, $3, $4::time, $5)
+                `INSERT INTO service.slot_holds (store_id, staff_id, booking_date, slot_time, duration_mins, expires_at)
+                 VALUES ($1, $2, $3, $4::time, $5, NOW() + INTERVAL '10 minutes')
                  RETURNING id, expires_at`,
                 [storeUuid, staffId, date, slotTime, dur]
             );
