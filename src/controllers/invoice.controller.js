@@ -73,6 +73,7 @@ const drawLine = (doc, y, color = '#e0e3e6') => {
 };
 
 // Generate PDF buffer
+// invoice may include: coupon_code, coupon_discount
 const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
   return new Promise((resolve, reject) => {
     try {
@@ -158,6 +159,9 @@ const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
       const validFrom = subscription.paid_at ? new Date(subscription.paid_at).toLocaleDateString('en-IN') : 'N/A';
       const validUntil = subscription.valid_until ? new Date(subscription.valid_until).toLocaleDateString('en-IN') : 'N/A';
 
+      const couponCode = invoice.coupon_code || null;
+      const couponDiscount = couponCode ? parseFloat(invoice.coupon_discount || 0) : 0;
+
       doc.font('Helvetica').fontSize(8).fillColor('#556067')
         .text(seller.sac, 45, 308)
         .text(planLabel, 85, 308, { width: 215 })
@@ -165,27 +169,53 @@ const generateInvoicePDF = (invoice, subscription, store, tenant, seller) => {
         .text(`${validFrom} to\n${validUntil}`, 400, 308, { width: 75 })
         .text(`₹${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, 308, { width: 70, align: 'right' });
 
-      drawLine(doc, 340);
-
-      // ── TAX SUMMARY ──────────────────────────────────────
-      const taxY = 350;
-      doc.rect(310, taxY, 245, isDelhi ? 80 : 64).fill('#fafafa');
-
-      doc.fillColor('#556067').font('Helvetica').fontSize(8)
-        .text('Taxable Amount (Base)', 315, taxY + 8)
-        .text(`₹${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 8, { width: 70, align: 'right' });
-
-      if (isDelhi) {
-        doc.text(`CGST @ ${cgst > 0 ? 9 : 0}%`, 315, taxY + 24)
-          .text(`₹${cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 24, { width: 70, align: 'right' });
-        doc.text(`SGST @ ${sgst > 0 ? 9 : 0}%`, 315, taxY + 40)
-          .text(`₹${sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 40, { width: 70, align: 'right' });
-      } else {
-        doc.text(`IGST @ 18%`, 315, taxY + 24)
-          .text(`₹${igst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, taxY + 24, { width: 70, align: 'right' });
+      // Coupon discount row (if applicable)
+      let serviceTableBottom = 340;
+      if (couponCode && couponDiscount > 0) {
+        doc.font('Helvetica').fontSize(8).fillColor('#006d2f')
+          .text(`Platform Coupon Applied: ${couponCode}`, 85, 326, { width: 300 })
+          .text(`-₹${couponDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, 326, { width: 70, align: 'right' });
+        serviceTableBottom = 356;
       }
 
-      const totalY = isDelhi ? taxY + 56 : taxY + 40;
+      drawLine(doc, serviceTableBottom);
+
+      // ── TAX SUMMARY ──────────────────────────────────────
+      const taxY = serviceTableBottom + 10;
+      doc.rect(310, taxY, 245, isDelhi ? 80 : 64).fill('#fafafa');
+
+      // tax summary box height grows if coupon line present
+      const taxBoxRows = (couponCode && couponDiscount > 0 ? 1 : 0) + (isDelhi ? 3 : 2);
+      doc.rect(310, taxY, 245, taxBoxRows * 16 + 8).fill('#fafafa');
+
+      let ty = taxY + 8;
+      doc.fillColor('#556067').font('Helvetica').fontSize(8)
+        .text('Taxable Amount (Base)', 315, ty)
+        .text(`₹${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, ty, { width: 70, align: 'right' });
+      ty += 16;
+
+      if (couponCode && couponDiscount > 0) {
+        doc.fillColor('#006d2f').font('Helvetica').fontSize(8)
+          .text(`Coupon Discount (${couponCode})`, 315, ty)
+          .text(`-₹${couponDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, ty, { width: 70, align: 'right' });
+        ty += 16;
+      }
+
+      doc.fillColor('#556067');
+      if (isDelhi) {
+        doc.text(`CGST @ ${cgst > 0 ? 9 : 0}%`, 315, ty)
+          .text(`₹${cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, ty, { width: 70, align: 'right' });
+        ty += 16;
+        doc.text(`SGST @ ${sgst > 0 ? 9 : 0}%`, 315, ty)
+          .text(`₹${sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, ty, { width: 70, align: 'right' });
+        ty += 16;
+      } else {
+        doc.text(`IGST @ 18%`, 315, ty)
+          .text(`₹${igst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 480, ty, { width: 70, align: 'right' });
+        ty += 16;
+      }
+
+      const totalY = ty;
       doc.rect(310, totalY, 245, 24).fill('#006d2f');
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9)
         .text('TOTAL AMOUNT', 315, totalY + 7)
@@ -346,7 +376,8 @@ const InvoiceController = {
         `SELECT ss.*, s.store_name, s.subdomain, s.custom_domain, s.tenant_id,
                 t.company_name, t.phone, t.email,
                 t.business_name as t_business_name, t.gst_number as t_gst_number,
-                t.state as t_state, t.address as t_address, t.full_name as t_full_name
+                t.state as t_state, t.address as t_address, t.full_name as t_full_name,
+                ss.platform_coupon_code, ss.platform_coupon_discount
          FROM store_subscriptions ss
          JOIN stores s ON s.id = ss.store_id
          JOIN tenants t ON t.id = s.tenant_id
@@ -390,6 +421,8 @@ const InvoiceController = {
         tenant_address: h_address || row.tenant_address || row.t_address || '',
         tenant_state: h_state || row.tenant_state || row.t_state || '',
         tenant_business_name: h_business || row.tenant_business_name || row.t_business_name || row.company_name || '',
+        coupon_code: row.platform_coupon_code || null,
+        coupon_discount: row.platform_coupon_discount || 0,
       };
 
       const subscription = {

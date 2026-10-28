@@ -387,18 +387,28 @@ const PublishFlowController = {
             const taxAmount   = (finalAmt - parseFloat(baseAmount)).toFixed(2);
             const totalAmount = finalAmt.toFixed(2);
 
+            // Calculate coupon discount amount (original finalAmt before coupon - discounted finalAmt)
+            const originalFinalAmt = discountCalc ? discountCalc.finalAmount : fullAmount;
+            const couponDiscountAmt = platformCoupon
+                ? parseFloat((originalFinalAmt - parseFloat(totalAmount)).toFixed(2))
+                : 0;
+
             const subscriptionResult = await pool.query(
                 `INSERT INTO store_subscriptions
                     (store_id, plan_key, plan_name, billing_cycle, base_amount, tax_amount, total_amount,
-                     payment_status, payment_method, paid_at, valid_until, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,NOW(),NOW()+($9||' days')::interval,NOW())
+                     payment_status, payment_method, paid_at, valid_until, updated_at,
+                     platform_coupon_code, platform_coupon_discount)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,NOW(),NOW()+($9||' days')::interval,NOW(),$10,$11)
                  ON CONFLICT (store_id) DO UPDATE
                  SET plan_key=$2, plan_name=$3, billing_cycle=$4, base_amount=$5, tax_amount=$6,
                      total_amount=$7, payment_status='paid', payment_method=$8,
-                     paid_at=NOW(), valid_until=NOW()+($9||' days')::interval, updated_at=NOW()
+                     paid_at=NOW(), valid_until=NOW()+($9||' days')::interval, updated_at=NOW(),
+                     platform_coupon_code=$10, platform_coupon_discount=$11
                  RETURNING *`,
                 [id, plan.plan_key, plan.display_name, plan.billing_cycle,
-                 baseAmount, taxAmount, totalAmount, paymentMethod || 'upi', plan.validity_days]
+                 baseAmount, taxAmount, totalAmount, paymentMethod || 'upi', plan.validity_days,
+                 platformCoupon ? platformCoupon.code : null,
+                 couponDiscountAmt > 0 ? couponDiscountAmt : null]
             );
 
             const storeUpdateResult = await pool.query(

@@ -371,6 +371,7 @@ router.get('/revenue', authenticateAdmin, async (req, res) => {
                 ss.payment_method, ss.paid_at, ss.valid_until,
                 ss.invoice_number,
                 ss.tenant_business_name, ss.tenant_gstin, ss.tenant_state, ss.tenant_address,
+                ss.platform_coupon_code, ss.platform_coupon_discount,
                 s.store_name, s.subdomain, s.custom_domain, s.status as store_status,
                 t.company_name as tenant_name, t.phone as tenant_phone, t.email as tenant_email,
                 t.business_name as tenant_business_name_profile,
