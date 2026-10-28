@@ -651,7 +651,11 @@ router.post('/subscribe', async (req, res) => {
       [orderId, tenantId, JSON.stringify({
         tenant_id: tenantId, plan_id, type: 'market_subscription',
         base_amount: baseRupees, gst_rate: gstRate,
-        gst_amount: gstRupees, total_amount: totalRupees
+        gst_amount: gstRupees, total_amount: totalRupees,
+        // Snapshot tenant info at payment time so revenue records survive tenant deletion
+        tenant_name: tenant.company_name || '',
+        tenant_email: tenant.email || '',
+        tenant_phone: tenant.mobile || '',
       }), totalRupees]
     );
 

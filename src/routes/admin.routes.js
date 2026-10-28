@@ -486,7 +486,8 @@ router.get('/invoices/bulk-download', authenticateAdmin, async (req, res) => {
              (cpo.order_data->>'gst_rate')::numeric as gst_rate,
              (cpo.order_data->>'gst_amount')::numeric as gst_amount,
              (cpo.order_data->>'total_amount')::numeric as total_amount,
-             t.company_name as tenant_name, t.email as tenant_email,
+             COALESCE(t.company_name, cpo.order_data->>'tenant_name') as tenant_name,
+             COALESCE(t.email, cpo.order_data->>'tenant_email') as tenant_email,
              p.name as plan_name
       FROM cashfree_pending_orders cpo
       LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::int
@@ -546,8 +547,10 @@ router.get('/market/invoices/:orderId/download', authenticateAdmin, async (req, 
              (cpo.order_data->>'base_amount')::numeric as base_amount,
              (cpo.order_data->>'gst_rate')::numeric as gst_rate,
              (cpo.order_data->>'total_amount')::numeric as total_amount,
-             t.company_name as tenant_name, t.email as tenant_email,
-             t.phone as tenant_phone, t.business_name, t.full_name,
+             COALESCE(t.company_name, cpo.order_data->>'tenant_name') as tenant_name,
+             COALESCE(t.email, cpo.order_data->>'tenant_email') as tenant_email,
+             COALESCE(t.phone, cpo.order_data->>'tenant_phone') as tenant_phone,
+             t.business_name, t.full_name,
              t.gstin as gst_number, t.state as tenant_state, t.address as tenant_address,
              p.name as plan_name, p.description as plan_description,
              p.max_scheduled, p.image_retain_days, p.daily_msg_limit, p.validity_days
@@ -633,14 +636,11 @@ router.get('/market/all-invoices', authenticateAdmin, async (req, res) => {
              (cpo.order_data->>'gst_rate')::numeric as gst_rate,
              (cpo.order_data->>'gst_amount')::numeric as gst_amount,
              (cpo.order_data->>'total_amount')::numeric as total_amount,
-             COALESCE(t1.company_name, t2.company_name) as tenant_name,
-             COALESCE(t1.email, t2.email) as tenant_email,
+             COALESCE(t.company_name, cpo.order_data->>'tenant_name') as tenant_name,
+             COALESCE(t.email, cpo.order_data->>'tenant_email') as tenant_email,
              p.name as plan_name
       FROM cashfree_pending_orders cpo
-      -- Join 1: via store_id column (holds tenant UUID for WA orders)
-      LEFT JOIN tenants t1 ON t1.id::text = cpo.store_id::text
-      -- Join 2: via order_data JSON field (fallback)
-      LEFT JOIN tenants t2 ON t2.id::text = cpo.order_data->>'tenant_id'
+      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::int
       LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
       WHERE cpo.order_id LIKE 'WA_%' AND cpo.status = 'paid'
       ORDER BY cpo.created_at DESC
