@@ -100,6 +100,64 @@ router.get('/referral/summary', async (req, res) => {
     }
 });
 
+// POST /api/stores/:id/validate-platform-coupon — tenant validates a billing coupon code
+router.post('/:id/validate-platform-coupon', async (req, res) => {
+    try {
+        const { id: storeId } = req.params;
+        const tenantId = req.tenantId;
+        const { code, trigger_type = 'store_publish' } = req.body;
+
+        if (!code) return res.status(400).json({ success: false, error: 'Coupon code required' });
+
+        // Verify store belongs to tenant
+        const storeCheck = await pool.query(
+            'SELECT id FROM stores WHERE id = $1 AND tenant_id = $2',
+            [storeId, tenantId]
+        );
+        if (!storeCheck.rows.length) return res.status(404).json({ success: false, error: 'Store not found' });
+
+        // Find the coupon
+        const couponRes = await pool.query(
+            `SELECT * FROM platform_coupons
+             WHERE code = $1
+               AND status = 'active'
+               AND (trigger_type = $2 OR trigger_type = 'both')
+               AND (max_stores IS NULL OR claimed_count < max_stores)`,
+            [code.trim().toUpperCase(), trigger_type]
+        );
+
+        if (!couponRes.rows.length) {
+            return res.status(404).json({ success: false, error: 'Invalid or expired coupon code' });
+        }
+
+        const coupon = couponRes.rows[0];
+
+        // Check if this store already claimed it
+        const claimCheck = await pool.query(
+            'SELECT id FROM platform_coupon_claims WHERE coupon_id = $1 AND store_id = $2',
+            [coupon.id, storeId]
+        );
+        if (claimCheck.rows.length) {
+            return res.status(409).json({ success: false, error: 'This coupon has already been used for this store' });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                coupon_id: coupon.id,
+                name: coupon.name,
+                code: coupon.code,
+                unit: coupon.unit,
+                value: coupon.value,
+                min_order_value: coupon.min_order_value,
+            }
+        });
+    } catch (e) {
+        console.error('Validate platform coupon error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Initiate Cashfree subscription payment
 router.post('/:id/payment/initiate-cashfree', async (req, res) => {
     try {

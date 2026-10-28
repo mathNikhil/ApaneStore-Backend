@@ -31,6 +31,7 @@ class PlatformCouponsController {
                 max_stores = null,
                 validity_days = 30,
                 max_uses_per_store = null,
+                trigger_type = 'store_publish',
             } = req.body;
 
             if (!name || !code || !unit || value === undefined) {
@@ -41,10 +42,10 @@ class PlatformCouponsController {
 
             const result = await pool.query(`
                 INSERT INTO platform_coupons
-                    (name, code, unit, value, min_order_value, max_stores, validity_days, max_uses_per_store)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                    (name, code, unit, value, min_order_value, max_stores, validity_days, max_uses_per_store, trigger_type)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
                 RETURNING *
-            `, [name, upper, unit, value, min_order_value, max_stores, validity_days, max_uses_per_store]);
+            `, [name, upper, unit, value, min_order_value, max_stores, validity_days, max_uses_per_store, trigger_type]);
 
             res.status(201).json({ success: true, data: result.rows[0] });
         } catch (err) {

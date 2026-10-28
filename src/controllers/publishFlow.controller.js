@@ -297,7 +297,7 @@ const PublishFlowController = {
         try {
             const { id } = req.params;
             const tenantId = req.tenantId;
-            const { paymentMethod, billingCycle, termsAccepted } = req.body;
+            const { paymentMethod, billingCycle, termsAccepted, platformCouponCode } = req.body;
 
             if (!termsAccepted) {
                 return res.status(400).json({ success: false, error: 'You must accept the Terms & Conditions to publish your store.' });
@@ -354,7 +354,35 @@ const PublishFlowController = {
             } catch (e) {
                 console.error('Discount calc error:', e.message);
             }
-            const finalAmt    = discountCalc ? discountCalc.finalAmount : fullAmount;
+            let finalAmt = discountCalc ? discountCalc.finalAmount : fullAmount;
+
+            // Apply platform coupon if provided
+            let platformCoupon = null;
+            if (platformCouponCode) {
+                const couponRes = await pool.query(
+                    `SELECT * FROM platform_coupons
+                     WHERE code = $1 AND status = 'active'
+                       AND (trigger_type = 'store_publish' OR trigger_type = 'both')
+                       AND (max_stores IS NULL OR claimed_count < max_stores)`,
+                    [platformCouponCode.trim().toUpperCase()]
+                );
+                if (couponRes.rows.length) {
+                    platformCoupon = couponRes.rows[0];
+                    const alreadyClaimed = await pool.query(
+                        'SELECT id FROM platform_coupon_claims WHERE coupon_id = $1 AND store_id = $2',
+                        [platformCoupon.id, id]
+                    );
+                    if (!alreadyClaimed.rows.length) {
+                        if (platformCoupon.unit === 'percent') {
+                            finalAmt = finalAmt * (1 - platformCoupon.value / 100);
+                        } else if (platformCoupon.unit === 'flat') {
+                            finalAmt = Math.max(0, finalAmt - platformCoupon.value);
+                        }
+                    } else {
+                        platformCoupon = null; // already used, ignore
+                    }
+                }
+            }
             const baseAmount  = (finalAmt / (1 + parseFloat(plan.tax_percentage) / 100)).toFixed(2);
             const taxAmount   = (finalAmt - parseFloat(baseAmount)).toFixed(2);
             const totalAmount = finalAmt.toFixed(2);
@@ -389,6 +417,30 @@ const PublishFlowController = {
 
             await discountService.incrementPublishCount(tenantId);
             if (discountCalc?.usableReferrals) await discountService.creditReferrals(tenantId, discountCalc.usableReferrals);
+
+            // Record platform coupon claim
+            if (platformCoupon) {
+                try {
+                    await pool.query(
+                        `INSERT INTO platform_coupon_claims (coupon_id, store_id)
+                         VALUES ($1, $2)
+                         ON CONFLICT (coupon_id, store_id) DO NOTHING`,
+                        [platformCoupon.id, id]
+                    );
+                    await pool.query(
+                        `UPDATE platform_coupons
+                         SET claimed_count = claimed_count + 1,
+                             status = CASE
+                                 WHEN max_stores IS NOT NULL AND claimed_count + 1 >= max_stores THEN 'exhausted'
+                                 ELSE status
+                             END
+                         WHERE id = $1`,
+                        [platformCoupon.id]
+                    );
+                } catch (couponErr) {
+                    console.error('Platform coupon claim error (non-fatal):', couponErr.message);
+                }
+            }
 
             res.json({
                 success: true,
