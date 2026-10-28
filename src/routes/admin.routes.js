@@ -633,12 +633,14 @@ router.get('/market/all-invoices', authenticateAdmin, async (req, res) => {
              (cpo.order_data->>'gst_rate')::numeric as gst_rate,
              (cpo.order_data->>'gst_amount')::numeric as gst_amount,
              (cpo.order_data->>'total_amount')::numeric as total_amount,
-             t.company_name as tenant_name, t.email as tenant_email,
-             p.name as plan_name,
-             cpo.order_data->>'tenant_id' as debug_tenant_id,
-             cpo.store_id as debug_store_id
+             COALESCE(t1.company_name, t2.company_name) as tenant_name,
+             COALESCE(t1.email, t2.email) as tenant_email,
+             p.name as plan_name
       FROM cashfree_pending_orders cpo
-      LEFT JOIN tenants t ON t.id::text = cpo.order_data->>'tenant_id'
+      -- Join 1: via store_id column (holds tenant UUID for WA orders)
+      LEFT JOIN tenants t1 ON t1.id::text = cpo.store_id::text
+      -- Join 2: via order_data JSON field (fallback)
+      LEFT JOIN tenants t2 ON t2.id::text = cpo.order_data->>'tenant_id'
       LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
       WHERE cpo.order_id LIKE 'WA_%' AND cpo.status = 'paid'
       ORDER BY cpo.created_at DESC
