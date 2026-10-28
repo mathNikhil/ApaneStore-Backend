@@ -634,7 +634,9 @@ router.get('/market/all-invoices', authenticateAdmin, async (req, res) => {
              (cpo.order_data->>'gst_amount')::numeric as gst_amount,
              (cpo.order_data->>'total_amount')::numeric as total_amount,
              t.company_name as tenant_name, t.email as tenant_email,
-             p.name as plan_name
+             p.name as plan_name,
+             cpo.order_data->>'tenant_id' as debug_tenant_id,
+             cpo.store_id as debug_store_id
       FROM cashfree_pending_orders cpo
       LEFT JOIN tenants t ON t.id::text = cpo.order_data->>'tenant_id'
       LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
