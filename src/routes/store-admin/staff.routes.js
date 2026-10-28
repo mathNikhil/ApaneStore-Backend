@@ -60,18 +60,20 @@ router.put('/sync', async (req, res) => {
                 const name = member.name.trim();
                 const phone = member.phone?.trim() || null;
                 const premiumPercent = parseFloat(member.premiumPercent) || 0;
+                const avatarUrl = member.photoUrl || member.avatar_url || null;
 
                 await client.query(
                     `INSERT INTO service.staff_members
-                        (store_id, name, phone, premium_percent, is_active)
-                     VALUES ($1, $2, $3, $4, true)
+                        (store_id, name, phone, premium_percent, is_active, avatar_url)
+                     VALUES ($1, $2, $3, $4, true, $5)
                      ON CONFLICT (store_id, LOWER(TRIM(name)))
                      DO UPDATE SET
                         phone           = EXCLUDED.phone,
                         premium_percent = EXCLUDED.premium_percent,
                         is_active       = true,
+                        avatar_url      = COALESCE(EXCLUDED.avatar_url, service.staff_members.avatar_url),
                         updated_at      = NOW()`,
-                    [storeStrId, name, phone, premiumPercent]
+                    [storeStrId, name, phone, premiumPercent, avatarUrl]
                 );
                 upsertedNames.push(name.toLowerCase().trim());
             }
@@ -100,7 +102,7 @@ router.put('/sync', async (req, res) => {
 
             // Return the current active staff list
             const { rows: staff } = await client.query(
-                `SELECT id, name, phone, premium_percent, is_active
+                `SELECT id, name, phone, premium_percent, avatar_url, is_active
                  FROM service.staff_members
                  WHERE store_id = $1 AND is_active = true
                  ORDER BY name`,

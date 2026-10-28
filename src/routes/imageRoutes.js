@@ -93,6 +93,18 @@ router.post(
     ImageController.uploadImage
 );
 
+// ==================== STAFF PHOTOS (STEP 2 store builder) ====================
+// reference_id = staff member name (slugified) or a temp key
+// URL saved in bookingSettings.staffMembers[].photoUrl in the config blob
+router.post(
+    '/:tenantId/:storeId/images/staff',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'STAFF_PHOTO'; next(); },
+    validateSingleImage,
+    ImageController.uploadImage
+);
+
 // ==================== PRODUCT SPECIFIC ROUTES ====================
 router.get('/products/:productId/images', ImageController.getProductImages);
 
