@@ -15,6 +15,7 @@ class AdminStoreController {
                     s.status,
                     s.created_at,
                     s.last_deployed_at,
+                    s.store_type,
                     t.id AS tenant_id,
                     t.company_name AS tenant_name,
                     COALESCE(

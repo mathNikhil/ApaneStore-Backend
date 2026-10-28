@@ -78,13 +78,27 @@ router.get('/', async (req, res) => {
             [storeIntId, date]
         );
 
-        // Also fetch active staff so we can show columns for staff with no bookings
+        // Active staff — columns for the scheduler grid
         const { rows: staffList } = await pool.query(
             `SELECT id, name, phone, work_start, work_end
              FROM service.staff_members
              WHERE store_id = $1 AND is_active = true
              ORDER BY name`,
             [storeStrId]
+        );
+
+        // Deactivated staff who still have bookings on this date — show as "Deleted" columns
+        // so past appointments remain visible for audit, but no new bookings can go to them
+        const { rows: deletedStaffWithBookings } = await pool.query(
+            `SELECT DISTINCT sm.id, sm.name, sm.phone, sm.work_start, sm.work_end
+             FROM service.staff_members sm
+             INNER JOIN service.bookings b ON b.staff_id = sm.id
+             WHERE sm.store_id = $1
+               AND sm.is_active = false
+               AND b.store_id   = $2
+               AND b.booking_date = $3
+             ORDER BY sm.name`,
+            [storeStrId, storeIntId, date]
         );
 
         // Pull store booking hours from config
@@ -97,6 +111,7 @@ router.get('/', async (req, res) => {
                 date,
                 bookings,
                 staff: staffList,
+                deletedStaff: deletedStaffWithBookings,
                 workStart: booking.workStart || '09:00',
                 workEnd:   booking.workEnd   || '20:00',
             }

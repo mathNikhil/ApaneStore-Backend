@@ -17,6 +17,7 @@ const storeAdminReturnsRoutes = require('./routes/store-admin/returns.routes');
 const storeAdminCustomersRoutes = require('./routes/store-admin/customers.routes');
 const storeAdminCouponsRoutes = require('./routes/store-admin/coupons.routes');
 const storeAdminAppointmentsRoutes = require('./routes/store-admin/appointments.routes');
+const storeAdminStaffRoutes = require('./routes/store-admin/staff.routes');
 const storefrontCouponsRoutes = require('./routes/storefront/coupons.routes');
 const storeAdminSessionRoutes = require('./routes/storeAdminSession.routes');
 const pricingRoutes = require('./routes/pricing.routes');
@@ -281,6 +282,8 @@ app.use('/api/store/:storeId/admin/returns', storeAdminReturnsRoutes);
 app.use('/api/store/:storeId/admin/customers', storeAdminCustomersRoutes);
 app.use('/api/store/:storeId/admin/coupons', storeAdminCouponsRoutes);
 app.use('/api/store/:storeId/admin/appointments', storeAdminAppointmentsRoutes);
+// Tenant-JWT authenticated — called from Store Builder to sync staff config → service.staff_members
+app.use('/api/stores/:storeId/staff', storeAdminStaffRoutes);
 app.use('/api/store/:storeId/coupons', storefrontCouponsRoutes);
 app.use('/api/store/:storeId/admin', require('./routes/notification.routes'));
 app.use('/api/store-admin/login', storeAdminLimiter);
