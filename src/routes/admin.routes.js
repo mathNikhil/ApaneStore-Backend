@@ -489,7 +489,7 @@ router.get('/invoices/bulk-download', authenticateAdmin, async (req, res) => {
              t.company_name as tenant_name, t.email as tenant_email,
              p.name as plan_name
       FROM cashfree_pending_orders cpo
-      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::uuid
+      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::int
       LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
       WHERE cpo.order_id LIKE 'WA_%' AND cpo.status = 'paid'
       ORDER BY cpo.created_at DESC
@@ -552,7 +552,7 @@ router.get('/market/invoices/:orderId/download', authenticateAdmin, async (req, 
              p.name as plan_name, p.description as plan_description,
              p.max_scheduled, p.image_retain_days, p.daily_msg_limit, p.validity_days
       FROM cashfree_pending_orders cpo
-      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::uuid
+      LEFT JOIN tenants t ON t.id = (cpo.order_data->>'tenant_id')::int
       LEFT JOIN addon_plans p ON p.id = (cpo.order_data->>'plan_id')::int
       WHERE cpo.order_id = $1
     `, [orderId]);
