@@ -17,7 +17,7 @@ const SlotsController = {
             const resolvedStoreId = storeRow.rows[0]?.store_id || storeId;
 
             const staffRows = await pool.query(
-                `SELECT id, name, premium_percent FROM service.staff_members
+                `SELECT id, name, premium_percent, avatar_url FROM service.staff_members
                  WHERE store_id = $1 AND is_active = true
                  ORDER BY name`,
                 [resolvedStoreId]
@@ -34,6 +34,7 @@ const SlotsController = {
                         id: null,
                         name: s.name.trim(),
                         premium_percent: parseFloat(s.premiumPercent) || 0,
+                        avatar_url: s.photoUrl || s.avatar_url || null,
                     }));
                 return res.json({ success: true, data: configStaff });
             }

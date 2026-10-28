@@ -56,6 +56,14 @@ const IMAGE_REQUIREMENTS = {
             allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'],
         },
         processing: { width: 1200, height: 1200, fit: 'inside' }
+    },
+    STAFF_PHOTO: {
+        display: { hint: 'Max 2MB • JPG/PNG/WebP • Square preferred' },
+        validation: {
+            maxSize: 2 * 1024 * 1024,
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'],
+        },
+        processing: { width: 400, height: 400, fit: 'cover' }
     }
 };
 

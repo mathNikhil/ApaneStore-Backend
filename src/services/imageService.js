@@ -18,6 +18,7 @@ class ImageService {
         // under a .png filename, causing express.static to send the wrong
         // Content-Type header (image/png for actual JPEG data).
         const outputExtension = imageType === 'LOGO' ? '.png' : '.jpg';
+        // STAFF_PHOTO uses .jpg like all non-logo types
         const uniqueFilename = `${imageType.toLowerCase()}_${timestamp}${outputExtension}`;
         
         // Build storage path
@@ -53,6 +54,10 @@ class ImageService {
                 throw new Error('Return ID is required for return images');
             }
             folderPath = `tenants/${tenantId}/stores/${storeId}/returns/${referenceId}`;
+        } else if (imageType === 'STAFF_PHOTO') {
+            folderPath = referenceId
+                ? `tenants/${tenantId}/stores/${storeId}/staff/${referenceId}`
+                : `tenants/${tenantId}/stores/${storeId}/staff`;
         } else {
             throw new Error(`Unknown image type: ${imageType}`);
         }
