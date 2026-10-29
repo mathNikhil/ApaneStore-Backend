@@ -175,7 +175,7 @@ const StoreAdminSessionController = {
 
             // Resolve store by subdomain
             const storeResult = await pool.query(
-                'SELECT id, store_id AS uuid, store_name FROM stores WHERE subdomain = $1',
+                'SELECT id, store_name FROM stores WHERE subdomain = $1',
                 [subdomain]
             );
             if (!storeResult.rows.length) {
@@ -184,6 +184,7 @@ const StoreAdminSessionController = {
             const store = storeResult.rows[0];
 
             // Look up staff with matching google_email and portal access
+            // service.staff_members.store_id is integer (FK to stores.id)
             const staffResult = await pool.query(
                 `SELECT id, name, google_email, permissions
                  FROM service.staff_members
@@ -193,7 +194,7 @@ const StoreAdminSessionController = {
                    AND permissions IS NOT NULL
                    AND jsonb_array_length(permissions) > 0
                  LIMIT 1`,
-                [store.uuid, email]
+                [store.id, email]
             );
 
             if (!staffResult.rows.length) {
@@ -210,7 +211,7 @@ const StoreAdminSessionController = {
             await pool.query(
                 `INSERT INTO service.staff_sessions (staff_id, store_id, token, last_active)
                  VALUES ($1, $2, $3, NOW())`,
-                [staff.id, store.uuid, sessionToken]
+                [staff.id, store.id, sessionToken]
             );
 
             // Trim old sessions for this staff (keep last 5)
