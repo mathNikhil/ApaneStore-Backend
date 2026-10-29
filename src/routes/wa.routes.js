@@ -615,7 +615,7 @@ router.post('/validate-coupon', async (req, res) => {
       `SELECT * FROM platform_coupons
        WHERE code = $1
          AND status = 'active'
-         AND (trigger_type = 'market_subscribe' OR trigger_type = 'both')
+         AND (trigger_type IN ('market_subscribe', 'store_publish', 'both'))
          AND (max_stores IS NULL OR claimed_count < max_stores)
          AND (start_at IS NULL OR NOW() >= start_at)
          AND (end_at IS NULL OR NOW() <= end_at)`,
