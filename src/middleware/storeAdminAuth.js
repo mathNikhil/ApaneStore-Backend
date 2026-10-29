@@ -68,20 +68,15 @@ const storeAdminAuth = async (req, res, next) => {
         }
 
         // ── 2. Try staff session ──────────────────────────────────────────────
-        // Get the store UUID first (staff_sessions uses UUID, not integer PK)
-        const storeUuidRow = await pool.query(
-            `SELECT store_id AS uuid FROM stores WHERE id = $1`,
-            [storeIntId]
-        );
-        if (storeUuidRow.rows.length) {
-            const storeUuid = storeUuidRow.rows[0].uuid;
+        // staff_sessions.store_id is INTEGER (= stores.id) after migration
+        {
             const staffSess = await pool.query(
                 `SELECT ss.id, ss.staff_id, ss.last_active, sm.permissions, sm.name AS staff_name
                  FROM service.staff_sessions ss
                  JOIN service.staff_members sm ON sm.id = ss.staff_id
                  WHERE ss.token = $1 AND ss.store_id = $2 AND sm.is_active = true
                  LIMIT 1`,
-                [token, storeUuid]
+                [token, storeIntId]
             );
             if (staffSess.rows.length) {
                 const sess = staffSess.rows[0];
