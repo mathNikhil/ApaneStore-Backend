@@ -37,7 +37,9 @@ router.get('/', async (req, res) => {
 
         const { rows } = await pool.query(
             `SELECT id, name, phone, premium_percent, avatar_url, is_active,
-                    work_start, work_end, created_at
+                    work_start, work_end, created_at,
+                    permissions,
+                    google_email
              FROM service.staff_members
              WHERE store_id = $1
              ORDER BY is_active DESC, name`,
@@ -172,6 +174,66 @@ router.post(
         }
     }
 );
+
+// ── PATCH /api/store/:storeId/admin/staff/:staffId/permissions ───────────
+// Set which store-admin pages this staff member can access, and their Gmail.
+// permissions: string[] of page keys (e.g. ['orders','customers'])
+//              null = portal access disabled
+// google_email: the Gmail address the staff will use to log in
+router.patch('/:staffId/permissions', async (req, res) => {
+    try {
+        const store = await resolveStoreUuid(req.params.storeId);
+        if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
+
+        const { staffId } = req.params;
+        let { permissions, google_email } = req.body;
+
+        // permissions: null = revoke access, or [{page, access}] array
+        // access values: 'view' | 'edit'
+        if (permissions !== null && permissions !== undefined) {
+            if (!Array.isArray(permissions)) {
+                return res.status(400).json({ success: false, error: 'permissions must be an array or null' });
+            }
+            const VALID_PAGES = ['dashboard','orders','customers','inventory','couriers','reports','staff','returns','coupons','appointments'];
+            const VALID_ACCESS = ['view', 'edit'];
+            for (const p of permissions) {
+                if (!p.page || !VALID_PAGES.includes(p.page)) {
+                    return res.status(400).json({ success: false, error: `Unknown page: "${p.page}"` });
+                }
+                if (!p.access || !VALID_ACCESS.includes(p.access)) {
+                    return res.status(400).json({ success: false, error: `Invalid access level "${p.access}" — must be "view" or "edit"` });
+                }
+            }
+            // Gmail required when granting any access
+            if (permissions.length > 0) {
+                if (!google_email || !google_email.includes('@')) {
+                    return res.status(400).json({ success: false, error: 'A Gmail address is required to enable portal access' });
+                }
+            }
+        }
+
+        const { rows } = await pool.query(
+            `UPDATE service.staff_members
+             SET permissions = $1::jsonb,
+                 google_email = $2,
+                 updated_at = NOW()
+             WHERE id = $3 AND store_id = $4
+             RETURNING id, name, permissions, google_email`,
+            [
+                permissions === null ? null : JSON.stringify(permissions),
+                (permissions && permissions.length > 0 && google_email) ? google_email.trim().toLowerCase() : null,
+                staffId,
+                store.uuid
+            ]
+        );
+
+        if (!rows.length) return res.status(404).json({ success: false, error: 'Staff not found' });
+        res.json({ success: true, data: rows[0] });
+    } catch (err) {
+        console.error('Staff permissions update error:', err);
+        res.status(500).json({ success: false, error: 'Failed to update permissions' });
+    }
+});
 
 // ── DELETE /api/store/:storeId/admin/staff/:staffId ───────────────────────
 // Soft-delete (is_active = false)

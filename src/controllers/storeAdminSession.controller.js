@@ -2,6 +2,8 @@ const { logActivity, checkSuspiciousActivity } = require('../middleware/activity
 const crypto = require('crypto');
 const pool = require('../config/database');
 const { decrypt } = require('../utils/encryption');
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const IDLE_TIMEOUT_MS = (parseInt(process.env.STORE_ADMIN_SESSION_IDLE_MINUTES, 10) || 180) * 60 * 1000; // must match middleware/storeAdminAuth.js
 
@@ -147,6 +149,192 @@ const StoreAdminSessionController = {
         } catch (error) {
             console.error('❌ Store Admin logout error:', error);
             res.status(500).json({ success: false, error: error.message || 'Logout failed' });
+        }
+    },
+
+    // POST /api/store-admin/staff-google-login   body: { subdomain, credential }
+    // Staff log in via Google OAuth. credential = Google ID token from GIS button.
+    staffGoogleLogin: async (req, res) => {
+        try {
+            const { subdomain, credential } = req.body;
+            if (!subdomain || !credential) {
+                return res.status(400).json({ success: false, error: 'subdomain and credential are required' });
+            }
+
+            // Verify Google ID token
+            let email;
+            try {
+                const ticket = await googleClient.verifyIdToken({
+                    idToken: credential,
+                    audience: process.env.GOOGLE_CLIENT_ID,
+                });
+                email = ticket.getPayload().email;
+            } catch (e) {
+                return res.status(401).json({ success: false, error: 'Invalid Google credential' });
+            }
+
+            // Resolve store by subdomain
+            const storeResult = await pool.query(
+                'SELECT id, store_id AS uuid, store_name FROM stores WHERE subdomain = $1',
+                [subdomain]
+            );
+            if (!storeResult.rows.length) {
+                return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+            const store = storeResult.rows[0];
+
+            // Look up staff with matching google_email and portal access
+            const staffResult = await pool.query(
+                `SELECT id, name, google_email, permissions
+                 FROM service.staff_members
+                 WHERE store_id = $1
+                   AND LOWER(google_email) = LOWER($2)
+                   AND is_active = true
+                   AND permissions IS NOT NULL
+                   AND jsonb_array_length(permissions) > 0
+                 LIMIT 1`,
+                [store.uuid, email]
+            );
+
+            if (!staffResult.rows.length) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Your Google account is not linked to any staff member in this store, or you have no page access assigned.',
+                });
+            }
+
+            const staff = staffResult.rows[0];
+
+            // Create session
+            const sessionToken = crypto.randomBytes(32).toString('hex');
+            await pool.query(
+                `INSERT INTO service.staff_sessions (staff_id, store_id, token, last_active)
+                 VALUES ($1, $2, $3, NOW())`,
+                [staff.id, store.uuid, sessionToken]
+            );
+
+            // Trim old sessions for this staff (keep last 5)
+            await pool.query(
+                `DELETE FROM service.staff_sessions
+                 WHERE staff_id = $1
+                   AND id NOT IN (
+                       SELECT id FROM service.staff_sessions WHERE staff_id = $1
+                       ORDER BY created_at DESC LIMIT 5
+                   )`,
+                [staff.id]
+            );
+
+            res.json({
+                success: true,
+                data: {
+                    token: sessionToken,
+                    storeId: store.id,
+                    storeName: store.store_name,
+                    staffId: staff.id,
+                    staffName: staff.name,
+                    staffEmail: email,
+                    permissions: staff.permissions,
+                    role: 'staff',
+                },
+            });
+        } catch (error) {
+            console.error('❌ Staff Google login error:', error);
+            res.status(500).json({ success: false, error: 'Login failed' });
+        }
+    },
+
+    // POST /api/store-admin/staff-login   body: { subdomain, phone, pin }
+    // Staff members log in with their phone + 4-digit PIN
+    staffLogin: async (req, res) => {
+        try {
+            const { subdomain, phone, pin } = req.body;
+            if (!subdomain || !phone || !pin) {
+                return res.status(400).json({ success: false, error: 'subdomain, phone and pin are required' });
+            }
+
+            // Resolve store
+            const storeResult = await pool.query(
+                'SELECT id, store_id AS uuid, store_name FROM stores WHERE subdomain = $1',
+                [subdomain]
+            );
+            if (!storeResult.rows.length) {
+                return res.status(404).json({ success: false, error: 'Store not found' });
+            }
+            const store = storeResult.rows[0];
+
+            // Find active staff with matching phone + pin
+            const staffResult = await pool.query(
+                `SELECT id, name, phone, permissions
+                 FROM service.staff_members
+                 WHERE store_id = $1
+                   AND phone = $2
+                   AND pin = $3
+                   AND is_active = true
+                   AND permissions IS NOT NULL
+                   AND array_length(permissions, 1) > 0
+                 LIMIT 1`,
+                [store.uuid, phone.trim(), String(pin).trim()]
+            );
+
+            if (!staffResult.rows.length) {
+                return res.status(401).json({ success: false, error: 'Invalid phone number or PIN' });
+            }
+
+            const staff = staffResult.rows[0];
+
+            // Create staff session
+            const sessionToken = crypto.randomBytes(32).toString('hex');
+            await pool.query(
+                `INSERT INTO service.staff_sessions (staff_id, store_id, token, last_active)
+                 VALUES ($1, $2, $3, NOW())`,
+                [staff.id, store.uuid, sessionToken]
+            );
+
+            // Clean up old sessions for this staff member (keep last 5)
+            await pool.query(
+                `DELETE FROM service.staff_sessions
+                 WHERE staff_id = $1
+                   AND id NOT IN (
+                       SELECT id FROM service.staff_sessions
+                       WHERE staff_id = $1
+                       ORDER BY created_at DESC
+                       LIMIT 5
+                   )`,
+                [staff.id]
+            );
+
+            res.json({
+                success: true,
+                data: {
+                    token: sessionToken,
+                    storeId: store.id,
+                    storeName: store.store_name,
+                    staffId: staff.id,
+                    staffName: staff.name,
+                    permissions: staff.permissions,
+                    role: 'staff',
+                },
+            });
+        } catch (error) {
+            console.error('❌ Staff portal login error:', error);
+            res.status(500).json({ success: false, error: 'Login failed' });
+        }
+    },
+
+    // POST /api/store-admin/staff-logout   body: { staffId, token }
+    staffLogout: async (req, res) => {
+        try {
+            const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+            const { staffId, token } = body;
+            if (token) {
+                await pool.query(
+                    'DELETE FROM service.staff_sessions WHERE staff_id = $1 AND token = $2',
+                    [staffId, token]
+                );
+            }
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ success: false, error: 'Logout failed' });
         }
     },
 };
