@@ -604,11 +604,61 @@ router.get('/plans', async (req, res) => {
 // MARKET SUBSCRIPTION PAYMENT
 // ════════════════════════════════════════════════════════
 
+// POST /market/validate-coupon — validate a platform coupon for market subscription
+router.post('/validate-coupon', async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ success: false, error: 'Coupon code required' });
+
+    const couponRes = await db.query(
+      `SELECT * FROM platform_coupons
+       WHERE code = $1
+         AND status = 'active'
+         AND (trigger_type = 'market_subscribe' OR trigger_type = 'both')
+         AND (max_stores IS NULL OR claimed_count < max_stores)
+         AND (start_at IS NULL OR NOW() >= start_at)
+         AND (end_at IS NULL OR NOW() <= end_at)`,
+      [code.trim().toUpperCase()]
+    );
+
+    if (!couponRes.rows.length) {
+      return res.status(404).json({ success: false, error: 'Invalid or expired coupon code' });
+    }
+
+    const coupon = couponRes.rows[0];
+
+    // Check if this tenant already used this coupon
+    const claimCheck = await db.query(
+      'SELECT id FROM platform_coupon_claims WHERE coupon_id = $1 AND store_id = $2',
+      [coupon.id, String(tenantId)]
+    );
+    if (claimCheck.rows.length) {
+      return res.status(409).json({ success: false, error: 'You have already used this coupon' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        coupon_id: coupon.id,
+        name: coupon.name,
+        code: coupon.code,
+        unit: coupon.unit,       // 'percent' | 'flat'
+        value: coupon.value,
+        min_order_value: coupon.min_order_value,
+      }
+    });
+  } catch (err) {
+    console.error('[Market Validate Coupon]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST /market/subscribe — create Cashfree order for market plan
 router.post('/subscribe', async (req, res) => {
   try {
     const tenantId = req.tenantId;
-    const { plan_id } = req.body;
+    const { plan_id, coupon_id } = req.body;
 
     // Get tenant info
     const { rows: tenants } = await db.query(
@@ -624,14 +674,34 @@ router.post('/subscribe', async (req, res) => {
     if (!plans[0]) return res.status(404).json({ error: 'Plan not found' });
     const plan = plans[0];
 
+    // Resolve coupon discount (if any)
+    let discountRupees = 0;
+    let appliedCoupon = null;
+    if (coupon_id) {
+      const { rows: coupons } = await db.query(
+        `SELECT * FROM platform_coupons WHERE id = $1 AND status = 'active'`, [coupon_id]
+      );
+      if (coupons[0]) {
+        const c = coupons[0];
+        const baseForDiscount = plan.price_monthly / 100;
+        if (!c.min_order_value || baseForDiscount >= c.min_order_value) {
+          discountRupees = c.unit === 'percent'
+            ? parseFloat((baseForDiscount * c.value / 100).toFixed(2))
+            : Math.min(parseFloat(c.value), baseForDiscount);
+          appliedCoupon = c;
+        }
+      }
+    }
+
     // Create Cashfree order using existing payment service
     const { createOrder } = require('../services/paymentGateway.service');
     const orderId = `WA_${tenantId}_${plan_id}_${Date.now()}`;
 
     const baseRupees = plan.price_monthly / 100; // stored in paise
+    const discountedBase = parseFloat((baseRupees - discountRupees).toFixed(2));
     const gstRate = parseFloat(plan.gst_rate != null ? plan.gst_rate : 18);
-    const gstRupees = parseFloat((baseRupees * gstRate / 100).toFixed(2));
-    const totalRupees = parseFloat((baseRupees + gstRupees).toFixed(2));
+    const gstRupees = parseFloat((discountedBase * gstRate / 100).toFixed(2));
+    const totalRupees = parseFloat((discountedBase + gstRupees).toFixed(2));
 
     const result = await createOrder({
       orderId,
@@ -643,25 +713,45 @@ router.post('/subscribe', async (req, res) => {
       returnUrl: `https://aapnaestore.com/market?order_id=${orderId}`,
     });
 
-    // Store pending order in DB with GST details
+    // Store pending order in DB with GST + coupon details
     await db.query(
       `INSERT INTO cashfree_pending_orders (order_id, store_id, order_data, amount, status, created_at)
        VALUES ($1, $2, $3, $4, 'pending', NOW())
        ON CONFLICT (order_id) DO NOTHING`,
       [orderId, tenantId, JSON.stringify({
         tenant_id: tenantId, plan_id, type: 'market_subscription',
-        base_amount: baseRupees, gst_rate: gstRate,
+        base_amount: baseRupees, discount_amount: discountRupees,
+        discounted_base: discountedBase, gst_rate: gstRate,
         gst_amount: gstRupees, total_amount: totalRupees,
-        // Snapshot tenant info at payment time so revenue records survive tenant deletion
+        coupon_id: appliedCoupon?.id || null,
+        coupon_code: appliedCoupon?.code || null,
         tenant_name: tenant.company_name || '',
         tenant_email: tenant.email || '',
         tenant_phone: tenant.mobile || '',
       }), totalRupees]
     );
 
+    // Record coupon claim if applied
+    if (appliedCoupon) {
+      await db.query(
+        `INSERT INTO platform_coupon_claims (coupon_id, store_id)
+         VALUES ($1, $2)
+         ON CONFLICT (coupon_id, store_id) DO NOTHING`,
+        [appliedCoupon.id, String(tenantId)]
+      );
+      await db.query(
+        `UPDATE platform_coupons SET claimed_count = claimed_count + 1 WHERE id = $1`,
+        [appliedCoupon.id]
+      );
+    }
+
     res.json({ success: true, data: {
       paymentSessionId: result.paymentSessionId, orderId, plan,
-      pricing: { base: baseRupees, gst_rate: gstRate, gst: gstRupees, total: totalRupees }
+      pricing: {
+        base: baseRupees, discount: discountRupees,
+        discounted_base: discountedBase, gst_rate: gstRate,
+        gst: gstRupees, total: totalRupees
+      }
     }});
   } catch (err) {
     console.error('[Market Subscribe]', err);
