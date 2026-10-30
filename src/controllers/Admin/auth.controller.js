@@ -33,7 +33,7 @@ class AdminAuthController {
             const admin = result.rows[0];
 
             // Verify password
-            const isValid = await bcrypt.compare(password, admin.password_hash);
+            const isValid = await bcrypt.compare(password, admin.password);
             if (!isValid) {
                 return res.status(401).json({
                     success: false,
