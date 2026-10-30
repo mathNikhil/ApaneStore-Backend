@@ -4,6 +4,9 @@ const PublicStoreController = require('../controllers/public.controller');
 
 router.get('/store/:subdomain', PublicStoreController.getBySubdomain);
 
+// Lazy-loaded catalog: products, categories, stockMap — fetched after shell paint
+router.get('/store/:subdomain/catalog', PublicStoreController.getCatalog);
+
 
 // Resolve delivery zone by pincode — called from storefront when customer enters pincode
 router.get('/store/:subdomain/resolve-delivery/:pincode', async (req, res) => {
