@@ -94,15 +94,6 @@ app.use(helmet({
 
 const rateLimit = require('express-rate-limit');
 
-// General API rate limit — for all authenticated API calls (JWT protected)
-const generalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 500,
-    message: { success: false, error: 'Too many requests, please try again later.' },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-
 // Super admin login — keyed by EMAIL so each admin has their own counter
 const superAdminLoginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -146,8 +137,17 @@ const customerOtpLimiter = rateLimit({
 // Keep superAdminLimiter as alias for backward compat
 const superAdminLimiter = superAdminLoginLimiter;
 
-// Public storefront routes — unauthenticated, high-traffic (store pages, delivery zone checks)
-// Keyed by IP but with a much higher ceiling: 3000 req / 15 min ≈ 200 req/min per IP
+// General limiter skips /api/public/* — those get their own higher limit below
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    skip: (req) => req.path.startsWith('/public'),
+    message: { success: false, error: 'Too many requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Public storefront routes — unauthenticated, high-traffic: 3000 req / 15 min per IP
 const publicLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 3000,
@@ -156,9 +156,7 @@ const publicLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// Public routes get the generous limiter FIRST (more-specific path wins in Express)
 app.use('/api/public', publicLimiter);
-// Everything else gets the tighter general limiter
 app.use('/api', generalLimiter);
 app.use(cors({
     origin: async (origin, callback) => {
