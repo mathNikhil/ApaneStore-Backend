@@ -38,14 +38,33 @@ class TenantController {
 
     /**
      * Update the authenticated tenant's own profile
-     * Accepts: company_name, email, phone, business_type
+     * Accepts: company_name, email, phone, business_type (tenant categories only)
      * Note: phone is included but cannot be changed (it's the login identity)
+     * SECURITY: business_type is validated against allowed tenant categories.
+     *           'admin' is never a valid value here — admin accounts are created
+     *           only through the seeder script by a sysadmin.
      */
     static async update(req, res) {
+        // SECURITY: Only these values are valid tenant business types.
+        // 'admin' is intentionally excluded — it can never be self-assigned.
+        const ALLOWED_BUSINESS_TYPES = new Set([
+            'retail', 'fashion', 'electronics', 'grocery', 'food', 'pharmacy',
+            'beauty', 'sports', 'books', 'furniture', 'jewelry', 'toys',
+            'automotive', 'hardware', 'pet', 'flowers', 'art', 'tenant'
+        ]);
+
         try {
             // ✅ Use snake_case to match frontend and database
             const { company_name, business_name, email, phone, business_type, gst_number, state, address, full_name } = req.body;
             const effectiveName = business_name || company_name;
+
+            // SECURITY: Reject any attempt to set business_type to 'admin' or any unknown value
+            if (business_type !== undefined && business_type !== '' && !ALLOWED_BUSINESS_TYPES.has(business_type)) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid business type'
+                });
+            }
 
             // ✅ Check if there's anything to update
             if (!company_name && !business_name && !email && !phone && !business_type && gst_number === undefined && !state && !address && !full_name) {
@@ -77,6 +96,7 @@ class TenantController {
                 values.push(phone);
             }
             if (business_type !== undefined && business_type !== '') {
+                // Safe: validated against ALLOWED_BUSINESS_TYPES above
                 updates.push(`business_type = $${paramIndex++}`);
                 values.push(business_type);
             }
@@ -112,7 +132,7 @@ class TenantController {
                           subscription_tier, is_verified, store_count, created_at, updated_at
             `;
 
-            logger.info(`📝 Updating tenant ${req.tenantId} with fields:`, { company_name, email, phone, business_type });
+            logger.info(`📝 Updating tenant ${req.tenantId} with fields:`, { company_name, email, phone, business_type: business_type || '[unchanged]' });
 
             const result = await pool.query(query, values);
 

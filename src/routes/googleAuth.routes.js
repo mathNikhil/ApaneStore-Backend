@@ -125,13 +125,44 @@ router.post('/google/link-phone', async (req, res) => {
 });
 
 // Complete registration for new Google tenant
+// SECURITY: We re-verify the Google credential server-side here.
+// The frontend must send the original Google idToken (credential), NOT a raw googleId.
+// This prevents account takeover where an attacker guesses or supplies another user's googleId/email.
 router.post('/google/complete', async (req, res) => {
     try {
-        const { googleId, email, name, company_name, phone } = req.body;
-        const business_type = 'tenant'; // SECURITY: never trust business_type from caller
-        if (!googleId || !email || !company_name || !business_type || !phone) {
+        const { credential, company_name, business_type, phone } = req.body;
+        if (!credential || !company_name || !business_type || !phone) {
             return res.status(400).json({ success: false, error: 'Missing required fields. Mobile number is mandatory.' });
         }
+
+        // SECURITY: Verify the Google idToken with Google's servers.
+        // If the token is forged or tampered with, this throws and we reject the request.
+        let googleId, email, name;
+        try {
+            const ticket = await client.verifyIdToken({
+                idToken: credential,
+                audience: process.env.GOOGLE_CLIENT_ID,
+            });
+            const payload = ticket.getPayload();
+            googleId = payload.sub;
+            email = payload.email;
+            name = payload.name;
+        } catch (verifyErr) {
+            return res.status(401).json({ success: false, error: 'Invalid Google credential. Please sign in with Google again.' });
+        }
+
+        // SECURITY: business_type must be a valid tenant category. 'admin' is never allowed here.
+        const ALLOWED_BUSINESS_TYPES = new Set([
+            'retail', 'fashion', 'electronics', 'grocery', 'food', 'pharmacy',
+            'beauty', 'sports', 'books', 'furniture', 'jewelry', 'toys',
+            'automotive', 'hardware', 'pet', 'flowers', 'art', 'tenant'
+        ]);
+        if (!ALLOWED_BUSINESS_TYPES.has(business_type)) {
+            return res.status(400).json({ success: false, error: 'Invalid business type' });
+        }
+
+        // SECURITY: business_type is always 'tenant' class — never trust caller to set 'admin'
+        const safe_business_type = business_type; // already validated above
 
         // Check email not already taken
         const existing = await pool.query('SELECT id FROM tenants WHERE email=$1 LIMIT 1', [email]);
@@ -145,7 +176,7 @@ router.post('/google/complete', async (req, res) => {
             `INSERT INTO tenants (tenant_id, email, company_name, business_type, phone, google_id, is_verified, status, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, true, 'active', NOW())
              RETURNING *`,
-            [tenantId, email, company_name, business_type, phone || null, googleId]
+            [tenantId, email, company_name, safe_business_type, phone || null, googleId]
         );
         const tenant = result.rows[0];
 
