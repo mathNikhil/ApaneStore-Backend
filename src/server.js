@@ -146,6 +146,19 @@ const customerOtpLimiter = rateLimit({
 // Keep superAdminLimiter as alias for backward compat
 const superAdminLimiter = superAdminLoginLimiter;
 
+// Public storefront routes — unauthenticated, high-traffic (store pages, delivery zone checks)
+// Keyed by IP but with a much higher ceiling: 3000 req / 15 min ≈ 200 req/min per IP
+const publicLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 3000,
+    message: { success: false, error: 'Too many requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Public routes get the generous limiter FIRST (more-specific path wins in Express)
+app.use('/api/public', publicLimiter);
+// Everything else gets the tighter general limiter
 app.use('/api', generalLimiter);
 app.use(cors({
     origin: async (origin, callback) => {

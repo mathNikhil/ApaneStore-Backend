@@ -85,8 +85,6 @@ router.get('/store/:subdomain/resolve-delivery/:pincode', async (req, res) => {
     }
 });
 
-module.exports = router;
-
 // Get store info by ID (for popup auth branding)
 router.get('/store-by-id/:storeId', async (req, res) => {
     try {
@@ -101,3 +99,5 @@ router.get('/store-by-id/:storeId', async (req, res) => {
         res.json({ success: true, data: { id: store.id, name: store.store_name, subdomain: store.subdomain, config: store.config, logoUrl: store.store_logo_url } });
     } catch(e) { res.status(500).json({ success: false }); }
 });
+
+module.exports = router;
