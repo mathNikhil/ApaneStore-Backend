@@ -67,24 +67,15 @@ class PublicStoreController {
 
             const config = store.config || {};
 
-            // Extract only the keys needed for the initial render.
-            // Products and categories are deliberately excluded here.
+            // Send full config but strip the bulk data (product list, category list).
+            // Everything else — brand, payment, address, cart, booking, banner config,
+            // features, etc. — must stay intact because StorefrontApp reads them directly.
             const shellConfig = {
-                theme:         config.theme         || null,
-                logo:          config.logo          || null,
-                banner:        config.banner        || null,
-                seo:           config.seo           || null,
-                payment:       config.payment       || null,
-                cart:          config.cart          || null,
-                contactInfo:   config.contactInfo   || null,
-                socialLinks:   config.socialLinks   || null,
-                about:         config.about         || null,
-                returnPolicy:  config.returnPolicy  || null,
-                features:      config.features      || null,
-                orderTypes:    config.orderTypes    || null,
-                tableConfig:   config.tableConfig   || null,
-                storeTimings:  config.storeTimings  || null,
-                announcement:  config.announcement  || null,
+                ...config,
+                products: config.products
+                    ? { ...config.products, items: undefined }
+                    : undefined,
+                categories: undefined, // lazy-loaded via /catalog
             };
 
             res.status(200).json({
@@ -97,7 +88,6 @@ class PublicStoreController {
                     status:     store.status,
                     store_type: store.store_type,
                     config:     shellConfig,
-                    // Signal to the frontend that catalog must be loaded separately
                     catalogUrl: `/api/public/store/${store.subdomain}/catalog`,
                 }
             });
