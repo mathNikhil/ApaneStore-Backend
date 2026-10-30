@@ -276,7 +276,6 @@ const discountService = require('../services/discount.service');
                 { expiresIn: '7d' }
             );
 
-            console.log(`✅ Token generated for ${phone}`);
 
             res.json({
                 success: true,

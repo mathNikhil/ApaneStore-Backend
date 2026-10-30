@@ -154,7 +154,7 @@ class StoreController {
             // value was sent. Remove once the mystery draft-reset is
             // confirmed fixed and hasn't recurred for a while.
             if (status !== undefined) {
-                console.log(`🔍 store.update() received explicit status="${status}" for store ${id} (was "${existingStore.status}") at ${new Date().toISOString()}`);
+                logger.info(`🔍 store.update() received explicit status="${status}" for store ${id} (was "${existingStore.status}") at ${new Date().toISOString()}`);
             }
 
             // 2. VALIDATION: If the name changed, check for duplicates

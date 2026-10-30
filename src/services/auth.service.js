@@ -9,7 +9,6 @@ class AuthService {
     // Register new tenant
     static async register(companyName, email, phone, password, businessType = null) {
         try {
-            console.log('📝 Register service called for:', email);
             
             // Check if tenant already exists
             const existing = await pool.query(
@@ -42,7 +41,6 @@ class AuthService {
             );
 
             const tenant = result.rows[0];
-            console.log('✅ Tenant created:', tenant.tenant_id);
 
             // Generate JWT token
             const token = jwt.sign(
@@ -68,7 +66,6 @@ class AuthService {
     // Login tenant
     static async login(identifier, password) {
         try {
-            console.log('🔑 Login service called for:', identifier);
             
             // Check if identifier is email or phone
             const isEmail = identifier.includes('@');
@@ -83,7 +80,6 @@ class AuthService {
             }
 
             const tenant = result.rows[0];
-            console.log('✅ Tenant found:', tenant.tenant_id);
 
             // Block soft-deleted tenants
             if (tenant.deleted_at) {

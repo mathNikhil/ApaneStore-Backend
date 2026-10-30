@@ -90,17 +90,11 @@ class OTPService {
                 [phone, email, otp, purpose, ipAddress]
             );
 
-            // In production, send via SMS/Email
-            console.log(`📱 OTP for ${phone}: ${otp}`);
-            console.log(`📧 Email: ${email || 'N/A'}`);
-
             logger.info(`📱 OTP sent to ${phone} for ${purpose}`);
 
             return {
                 success: true,
                 message: 'OTP sent successfully',
-                // Remove in production
-                test_otp: otp,
             };
         } catch (error) {
             logger.error('❌ Send OTP error:', error);

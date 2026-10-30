@@ -1,3 +1,4 @@
+const logger = require('../config/logger');
 const pool = require('../config/database');
 const { generateQRToken, validateQRToken } = require('../utils/qrToken');
 const {
@@ -231,7 +232,7 @@ const handleCashfreeWebhook = async (req, res) => {
       ['completed', event.orderId]
     );
 
-    console.log(`[QR] Activated for store ${store_id}, payment ${event.paymentId}`);
+    logger.info(`[QR] Activated for store ${store_id}, payment ${event.paymentId}`);
     res.json({ received: true });
   } catch (err) {
     console.error('[QR Webhook] Error:', err);
@@ -425,7 +426,7 @@ const adminActivateQR = async (req, res) => {
       expires_at
     });
 
-    console.log(`[QR Admin] Activated QR for store ${storeId} by super admin`);
+    logger.info(`[QR Admin] Activated QR for store ${storeId} by super admin`);
     res.json({ success: true, active: true, expires_at });
   } catch (err) {
     console.error('[QR Admin] adminActivateQR error:', err);
@@ -444,7 +445,7 @@ const adminDeactivateQR = async (req, res) => {
       [storeId]
     );
 
-    console.log(`[QR Admin] Deactivated QR for store ${storeId} by super admin`);
+    logger.info(`[QR Admin] Deactivated QR for store ${storeId} by super admin`);
     res.json({ success: true, active: false });
   } catch (err) {
     console.error('[QR Admin] adminDeactivateQR error:', err);

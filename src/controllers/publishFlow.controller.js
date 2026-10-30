@@ -1,3 +1,4 @@
+const logger = require('../config/logger');
 const pool = require('../config/database');
 const cashfreeService = require('../services/paymentGateway.service');
 const discountService = require('../services/discount.service');
@@ -256,10 +257,10 @@ const PublishFlowController = {
 
             try {
                 resolvedIps = await dns.resolve4(cleanDomain);
-                console.log(`[DNS-Verify] ${cleanDomain} resolves to: ${resolvedIps.join(', ')}`);
+                logger.info(`[DNS-Verify] ${cleanDomain} resolves to: ${resolvedIps.join(', ')}`);
             } catch (e) {
                 dnsError = e.message;
-                console.log(`[DNS-Verify] ${cleanDomain} lookup failed: ${e.message}`);
+                logger.info(`[DNS-Verify] ${cleanDomain} lookup failed: ${e.message}`);
             }
 
             const verified = resolvedIps.includes(AAPNA_SERVER_IP);
@@ -271,7 +272,7 @@ const PublishFlowController = {
                      WHERE store_id=$1 RETURNING *`,
                     [id]
                 );
-                console.log(`✅ [DNS-Verify] Store ${id} — ${cleanDomain} verified`);
+                logger.info(`✅ [DNS-Verify] Store ${id} — ${cleanDomain} verified`);
                 return res.json({ success: true, verified: true, data: result.rows[0] });
             }
 
@@ -315,7 +316,7 @@ const PublishFlowController = {
             const tenantResult = await pool.query('SELECT mobile FROM tenants WHERE id = $1', [tenantId]);
             const tenantMobile = tenantResult.rows[0]?.mobile;
             if (cashfreeService.isTestTenant(tenantMobile)) {
-                console.log(`✅ Test tenant ${tenantMobile} — bypassing payment`);
+                logger.info(`✅ Test tenant ${tenantMobile} — bypassing payment`);
                 return await PublishFlowController._publishStoreDirectly(id, tenantId, billingCycle, paymentMethod, termsAccepted, req, res);
             }
 
