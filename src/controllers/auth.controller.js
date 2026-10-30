@@ -9,7 +9,8 @@ const AuthController = {
     // Register new tenant
     register: async (req, res) => {
         try {
-            const { company_name, email, phone, password, business_type } = req.body;
+            const { company_name, email, phone, password } = req.body;
+            const business_type = 'tenant'; // SECURITY: never trust business_type from caller
             
             // Check if user exists
             const existing = await pool.query(
@@ -28,7 +29,7 @@ const AuthController = {
                 `INSERT INTO tenants (tenant_id, company_name, email, phone, password_hash, business_type, is_verified, created_at)
                  VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
                  RETURNING id, tenant_id, company_name, email, phone, business_type, created_at`,
-                [`TENANT_${Date.now()}`, company_name, email, phone, password, business_type || 'retail']
+                [`TENANT_${Date.now()}`, company_name, email, phone, password, business_type]
             );
 
             res.json({

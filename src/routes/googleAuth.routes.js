@@ -127,7 +127,8 @@ router.post('/google/link-phone', async (req, res) => {
 // Complete registration for new Google tenant
 router.post('/google/complete', async (req, res) => {
     try {
-        const { googleId, email, name, company_name, business_type, phone } = req.body;
+        const { googleId, email, name, company_name, phone } = req.body;
+        const business_type = 'tenant'; // SECURITY: never trust business_type from caller
         if (!googleId || !email || !company_name || !business_type || !phone) {
             return res.status(400).json({ success: false, error: 'Missing required fields. Mobile number is mandatory.' });
         }
