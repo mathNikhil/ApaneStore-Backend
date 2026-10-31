@@ -3,13 +3,23 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+// SEC-033: Crash on startup if required DB env vars are missing — no silent fallback
+// to a hardcoded password that might accidentally connect to the wrong database.
+const REQUIRED_DB_ENV = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
+const MISSING_DB_ENV = REQUIRED_DB_ENV.filter(k => !process.env[k]);
+if (MISSING_DB_ENV.length > 0) {
+    console.error(`❌ Missing required database environment variables: ${MISSING_DB_ENV.join(', ')}`);
+    console.error('   Set them in .env and restart the server.');
+    process.exit(1);
+}
+
 // Database connection pool
 const pool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
+    host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT) || 5432,
-    database: process.env.DB_NAME || 'apnaestore',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
     max: 20, // Maximum number of clients in the pool
     min: 5, // Minimum number of clients in the pool
     idleTimeoutMillis: 30000,
@@ -323,6 +333,8 @@ const runColumnMigrations = async () => {
         )`,
         `CREATE INDEX IF NOT EXISTS idx_otp_audit_phone_purpose ON otp_audit(phone, purpose)`,
         `ALTER TABLE otp_audit ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45)`,
+        // SEC-026: code column was VARCHAR(6) — widen to hold SHA-256 hex (64 chars)
+        `ALTER TABLE otp_audit ALTER COLUMN code TYPE VARCHAR(64)`,
         // ✅ Same UUID-vs-INTEGER drift as before — schema.sql declares
         // orders.store_id as UUID, but the live stores.id is INTEGER. No
         // real order has ever existed (checkout only updated local browser

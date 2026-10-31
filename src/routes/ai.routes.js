@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { authenticate } = require('../middleware/auth'); // SEC-027: require tenant auth
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-router.post('/generate', async (req, res) => {
+// SEC-027: Unauthenticated endpoint burned Gemini quota freely.
+// Require a valid tenant JWT so only logged-in Store Builder users can call it.
+router.post('/generate', authenticate, async (req, res) => {
     try {
         const { type, businessType, businessName, productName, targetCustomer, tone, extraContext } = req.body;
 

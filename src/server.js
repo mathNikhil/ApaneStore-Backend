@@ -94,44 +94,50 @@ app.use(helmet({
 
 const rateLimit = require('express-rate-limit');
 
-// Super admin login — keyed by EMAIL so each admin has their own counter
+// SEC-025: Rate limiter keyGenerators previously keyed by attacker-controlled body
+// fields (email, phone, subdomain). An attacker could lock out a victim by sending
+// the victim's email/phone/subdomain in repeated requests — burning the VICTIM's
+// counter, not their own. Fixed: key by IP only (or IP+field so the attacker's
+// own IP is always part of the key and is what gets consumed, never a third party's).
+
+// Super admin login — keyed by IP+email so the attacker's IP burns, not the victim's
 const superAdminLoginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 3,
     message: { success: false, error: 'Too many login attempts, please try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => `superadmin:${req.body?.email || req.ip}`,
+    keyGenerator: (req) => `superadmin:${req.ip}:${(req.body?.email || '').toLowerCase()}`,
 });
 
-// Tenant OTP — keyed by PHONE so each tenant has their own counter
+// Tenant OTP — keyed by IP+phone so the attacker's IP burns, not the victim's
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 3,
     message: { success: false, error: 'Too many login attempts, please try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => `auth:${req.body?.phone || req.ip}`,
+    keyGenerator: (req) => `auth:${req.ip}:${req.body?.phone || ''}`,
 });
 
-// Store admin login — keyed by SUBDOMAIN so each store has their own counter
+// Store admin login — keyed by IP+subdomain so the attacker's IP burns, not the victim's
 const storeAdminLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 3,
     message: { success: false, error: 'Too many login attempts, please try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => `storeadmin:${req.body?.subdomain || req.ip}`,
+    keyGenerator: (req) => `storeadmin:${req.ip}:${req.body?.subdomain || ''}`,
 });
 
-// Customer OTP — keyed by PHONE so each customer has their own counter
+// Customer OTP — keyed by IP+phone so the attacker's IP burns, not the victim's
 const customerOtpLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 3,
     message: { success: false, error: 'Too many OTP attempts, please try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => `customerotp:${req.body?.phone || req.ip}`,
+    keyGenerator: (req) => `customerotp:${req.ip}:${req.body?.phone || ''}`,
 });
 
 // Keep superAdminLimiter as alias for backward compat

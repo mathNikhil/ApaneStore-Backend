@@ -28,6 +28,14 @@ class OTPService {
         return crypto.randomInt(100000, 999999).toString();
     }
 
+    // SEC-026: Hash OTP before storing so a DB dump doesn't expose live codes.
+    // SHA-256 is sufficient here — OTPs are short-lived (5 min), already
+    // rate-limited, and don't need bcrypt's cost because brute-force is
+    // constrained by MAX_VERIFY_ATTEMPTS + expiry, not hashing alone.
+    static hashOTP(otp) {
+        return crypto.createHash('sha256').update(otp).digest('hex');
+    }
+
     // Send OTP — now rate-limited. Returns { success: false, rateLimited: true, error }
     // when blocked, so callers can respond with 429 instead of 200.
     static async sendOTP(phone, email = null, purpose = 'login', ipAddress = null) {
@@ -84,10 +92,12 @@ class OTPService {
             const otp = this.generateOTP();
             const expiresIn = 300; // 5 minutes
 
+            // SEC-026: Store the hash, never the plain OTP
+            const otpHash = this.hashOTP(otp);
             await pool.query(
                 `INSERT INTO otp_audit (phone, email, code, purpose, expires_at, ip_address)
                  VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${expiresIn} seconds', $5)`,
-                [phone, email, otp, purpose, ipAddress]
+                [phone, email, otpHash, purpose, ipAddress]
             );
 
             logger.info(`📱 OTP sent to ${phone} for ${purpose}`);
@@ -133,7 +143,8 @@ class OTPService {
                 };
             }
 
-            if (record.code !== otp) {
+            // SEC-026: Compare against hash — stored value is SHA-256(otp)
+            if (record.code !== this.hashOTP(otp)) {
                 await pool.query(`UPDATE otp_audit SET attempts = attempts + 1 WHERE id = $1`, [record.id]);
                 return {
                     valid: false,

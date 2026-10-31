@@ -1,6 +1,19 @@
 const express = require('express');
 const router = express.Router({ mergeParams: true });
 const pool = require('../../config/database');
+const rateLimit = require('express-rate-limit');
+
+// SEC-023: Per-IP rate limit on /use so an attacker can't script-exhaust
+// a coupon's max_uses. 10 coupon uses per IP per 15 minutes is generous
+// for a real customer; it makes automated exhaustion attacks impractical.
+const couponUseLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => req.ip,
+    message: { success: false, error: 'Too many coupon requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 // Public coupon validation — no admin auth required
 // POST /api/store/:storeId/coupons/validate
@@ -83,7 +96,7 @@ router.post('/validate', async (req, res) => {
 // Called when an order is placed — atomically increments current_uses.
 // Uses UPDATE ... WHERE current_uses < max_uses to prevent race conditions:
 // if two customers checkout simultaneously only one wins, the other gets 409.
-router.post('/use', async (req, res) => {
+router.post('/use', couponUseLimiter, async (req, res) => {
     try {
         const { storeId } = req.params;
         const { code } = req.body;
