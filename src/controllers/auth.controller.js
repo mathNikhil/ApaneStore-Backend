@@ -2,7 +2,8 @@ const { logActivity } = require('../middleware/activityLogger');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
 const logger = require('../config/logger');
-const OTPService = require('../services/otp.service');
+// OTPService intentionally removed — tenant OTP login is disabled for real users.
+// Primary auth is Google. Test-user OTP uses a hardcoded code (no SMS service needed).
 require('dotenv').config();
 
 const AuthController = {
@@ -132,23 +133,16 @@ const discountService = require('../services/discount.service');
         }
     },
 
-    // Send OTP — ✅ now uses the real, rate-limited OTPService (was
-    // previously just generating a code, logging it, and never storing it
-    // anywhere — meaning verification could never have actually checked it
-    // against anything real).
+    // sendOTP — TEST USERS ONLY. No SMS is sent; caller knows the hardcoded
+    // OTP (201807). Real tenants must use Google auth.
     sendOTP: async (req, res) => {
         try {
             const { phone } = req.body;
 
             if (!phone || phone.length !== 10) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Invalid phone number'
-                });
+                return res.status(400).json({ success: false, message: 'Invalid phone number' });
             }
 
-            // SECURITY: OTP login is disabled for real users — only test mobiles
-            // allowed. Primary login is Google auth.
             const TEST_MOBILES = (process.env.TEST_MOBILES || '').split(',').map(m => m.trim()).filter(Boolean);
             if (!TEST_MOBILES.includes(phone)) {
                 return res.status(403).json({
@@ -157,54 +151,27 @@ const discountService = require('../services/discount.service');
                 });
             }
 
-            const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
-            const result = await OTPService.sendOTP(phone, null, 'tenant_login', ipAddress);
-
-            if (!result.success) {
-                return res.status(result.rateLimited ? 429 : 500).json({
-                    success: false,
-                    message: result.error || 'Failed to send OTP'
-                });
-            }
-
-            res.json({
-                success: true,
-                message: 'OTP sent successfully',
-                data: {
-                    test_otp: result.test_otp,
-                    expires_in: 300
-                }
-            });
+            // Test path: no SMS sent, caller uses hardcoded OTP 201807
+            return res.json({ success: true, message: 'OTP sent successfully' });
         } catch (error) {
             console.error('Send OTP error:', error);
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Failed to send OTP'
-            });
+            return res.status(500).json({ success: false, message: 'Failed to send OTP' });
         }
     },
 
-    // ✅ FIX: previously accepted ANY 6-character input as a valid OTP
-    // ("For testing - accept any 6-digit OTP") — a complete authentication
-    // bypass, since it never actually checked the submitted code against
-    // anything. Now genuinely verifies against the code OTPService stored,
-    // with expiry and a failed-attempt limit.
+    // verifyOTP — TEST USERS ONLY. Checks TEST_MOBILES list and hardcoded
+    // OTP 201807. No database OTP records, no rate limiting — this path
+    // exists purely to let internal test accounts log in during development.
     verifyOTP: async (req, res) => {
         try {
             const { phone, otp } = req.body;
-            
+
             if (!phone || !otp) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Phone and OTP are required'
-                });
+                return res.status(400).json({ success: false, message: 'Phone and OTP are required' });
             }
 
-            // SECURITY: OTP login is disabled for real users — only test mobiles
             const TEST_MOBILES = (process.env.TEST_MOBILES || '').split(',').map(m => m.trim()).filter(Boolean);
-            const isTestMobile = TEST_MOBILES.includes(phone);
-
-            if (!isTestMobile) {
+            if (!TEST_MOBILES.includes(phone)) {
                 return res.status(403).json({
                     success: false,
                     message: 'Mobile login is not available. Please use Google to sign in.'
@@ -212,14 +179,11 @@ const discountService = require('../services/discount.service');
             }
 
             if (otp !== '201807') {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Invalid OTP'
-                });
+                return res.status(400).json({ success: false, message: 'Invalid OTP' });
             }
 
             const JWT_SECRET = process.env.JWT_SECRET;
-const discountService = require('../services/discount.service');
+            const discountService = require('../services/discount.service');
             if (!JWT_SECRET) {
                 console.error('❌ JWT_SECRET is not defined in .env');
                 return res.status(500).json({
