@@ -30,6 +30,151 @@ const CustomerOrderController = {
                 return res.status(400).json({ success: false, error: 'Please enter your UPI ID' });
             }
 
+            // ── SECURITY: Re-verify prices server-side (SEC-PRICE) ──────────────────
+            // Never trust prices or totals from the client. Look up each item's
+            // actual price from the DB, recompute all totals server-side, and
+            // reject if the client total diverges by more than ₹1.
+            //
+            // Products with multiple variations/sizes use the `inventory` table
+            // (which mirrors per-size prices from the builder). Simple single-price
+            // products fall back to `products.price`.
+            const productIds = [...new Set(items.map(i => i.productId).filter(Boolean))];
+
+            // Fetch base prices from products table (covers simple products)
+            let basePriceMap = {};
+            if (productIds.length > 0) {
+                const priceRows = await pool.query(
+                    `SELECT id, price FROM products
+                     WHERE id = ANY($1::int[]) AND store_id = $2 AND is_active = true`,
+                    [productIds, storeId]
+                );
+                for (const row of priceRows.rows) {
+                    basePriceMap[row.id] = parseFloat(row.price);
+                }
+            }
+
+            // Fetch per-variation/size prices from inventory table where provided
+            // Key: `${productId}:${variationId}:${sizeId}`
+            const inventoryLookups = items
+                .filter(i => i.productId && (i.variationId || i.sizeId))
+                .map(i => ({ productId: i.productId, variationId: i.variationId, sizeId: i.sizeId }));
+
+            let inventoryPriceMap = {};
+            if (inventoryLookups.length > 0) {
+                const invRows = await pool.query(
+                    `SELECT product_id, variation_id, size_id, price FROM inventory
+                     WHERE store_id = $1
+                       AND product_id = ANY($2::int[])
+                       AND is_archived = FALSE`,
+                    [storeId, productIds]
+                );
+                for (const row of invRows.rows) {
+                    const key = `${row.product_id}:${row.variation_id || ''}:${row.size_id || ''}`;
+                    inventoryPriceMap[key] = parseFloat(row.price);
+                }
+            }
+
+            // Rebuild items with verified prices; reject any item whose product isn't found
+            const verifiedItems = [];
+            for (const item of items) {
+                let dbPrice;
+
+                // Try inventory first (per-variation/size price)
+                if (item.productId && (item.variationId || item.sizeId)) {
+                    const key = `${item.productId}:${item.variationId || ''}:${item.sizeId || ''}`;
+                    dbPrice = inventoryPriceMap[key];
+                }
+
+                // Fall back to base product price
+                if (dbPrice === undefined) {
+                    dbPrice = basePriceMap[item.productId];
+                }
+
+                if (dbPrice === undefined) {
+                    // Product not found in this store — possibly a tampered productId
+                    return res.status(400).json({
+                        success: false,
+                        error: `Product not found or unavailable: ${item.name || item.productId}`
+                    });
+                }
+                verifiedItems.push({ ...item, price: dbPrice, total: dbPrice * item.quantity });
+            }
+
+            // Recompute totals from store's own config
+            const storeConfigResult = await pool.query('SELECT config FROM stores WHERE id = $1', [storeId]);
+            const storeConfig = storeConfigResult.rows[0]?.config || {};
+            const cartCfg = storeConfig.cart || {};
+
+            const serverSubtotal = Math.round(
+                verifiedItems.reduce((sum, i) => sum + i.price * i.quantity, 0) * 100
+            ) / 100;
+
+            // GST
+            const enableGST = cartCfg.enableGST ?? false;
+            const gstRate = parseFloat(cartCfg.gstRate) || 0;
+            const serverTax = enableGST
+                ? Math.round(serverSubtotal * (gstRate / 100) * 100) / 100
+                : 0;
+
+            // Delivery
+            let serverDelivery = 0;
+            if (orderType !== 'dine_in') {
+                const freeDelivery = cartCfg.freeDelivery ?? false;
+                const freeThreshold = parseFloat(cartCfg.freeDeliveryThreshold) || 0;
+                const baseDelivery = parseFloat(cartCfg.deliveryCharge) || 0;
+                serverDelivery = (freeDelivery && serverSubtotal >= freeThreshold) ? 0 : baseDelivery;
+            }
+
+            // Coupon discount — re-validate server-side if one was applied
+            let serverDiscount = 0;
+            if (couponCode) {
+                const couponResult = await pool.query(
+                    `SELECT unit, value, min_order_value FROM discount_codes
+                     WHERE store_id = $1 AND code = $2
+                       AND status != 'disabled'
+                       AND start_at <= NOW() AND end_at >= NOW()
+                       AND (max_uses IS NULL OR current_uses < max_uses)
+                     LIMIT 1`,
+                    [storeId, couponCode.trim().toUpperCase()]
+                );
+                if (couponResult.rows.length > 0) {
+                    const coupon = couponResult.rows[0];
+                    const minOrder = parseFloat(coupon.min_order_value) || 0;
+                    if (serverSubtotal >= minOrder) {
+                        const val = parseFloat(coupon.value) || 0;
+                        if (coupon.unit === 'percent') {
+                            serverDiscount = Math.round(serverSubtotal * val / 100 * 100) / 100;
+                        } else {
+                            serverDiscount = Math.min(val, serverSubtotal);
+                        }
+                    }
+                }
+                // If coupon not found/expired, serverDiscount stays 0 — not a hard error;
+                // coupon atomicity is enforced below when we claim it.
+            }
+
+            const serverTotal = Math.round(
+                (serverSubtotal + serverTax + serverDelivery - serverDiscount) * 100
+            ) / 100;
+
+            // Reject if client total is more than ₹1 off from what we computed
+            // (small float rounding is tolerated; a ₹1+ gap is manipulation)
+            if (Math.abs(serverTotal - parseFloat(totalAmount)) > 1.0) {
+                console.warn(`⚠️ Price mismatch storeId=${storeId} customerId=${customerId}: client ₹${totalAmount} vs server ₹${serverTotal}`);
+                return res.status(400).json({
+                    success: false,
+                    error: 'Order total mismatch. Please refresh your cart and try again.'
+                });
+            }
+
+            // Use server-computed values — never the client's
+            const safeSubtotal = serverSubtotal;
+            const safeTax = serverTax;
+            const safeDelivery = serverDelivery;
+            const safeDiscount = serverDiscount;
+            const safeTotal = serverTotal;
+            // ── end price verification ───────────────────────────────────────────────
+
             const customerResult = await pool.query('SELECT name, phone, email FROM customers WHERE id = $1', [customerId]);
             const customer = customerResult.rows[0] || {};
 
@@ -69,14 +214,14 @@ const CustomerOrderController = {
                 [
                     orderId, storeId, customerId, customer.name || null, customer.phone || phone,
                     customer.email || null,
-                    JSON.stringify(items), JSON.stringify(deliveryAddress),
-                    subtotal || 0, deliveryCharge || 0, taxAmount || 0, totalAmount, paymentMethod || null,
+                    JSON.stringify(verifiedItems), JSON.stringify(deliveryAddress),
+                    safeSubtotal, safeDelivery, safeTax, safeTotal, paymentMethod || null,
                     paymentMethod === 'upi' ? customerUpiId : null,
                     orderType || 'delivery',
                     branchId || null, branchName || null, deliveryZone || null, deliveryCost || null,
                     (orderType === 'dine_in' && dineInCustomerName) ? dineInCustomerName.trim() : null,
                     (orderType === 'dine_in' && dineInCustomerMobile) ? dineInCustomerMobile.trim() : null,
-                    discountAmount || 0, couponCode || null
+                    safeDiscount, couponCode || null
                 ]
             );
 
@@ -103,7 +248,7 @@ const CustomerOrderController = {
                 const storeIntId = storeRow.rows[0]?.store_int_id;   // integer — for bookings.store_id
                 const storeStrId = storeRow.rows[0]?.store_str_id;   // 'STORE_...' — for staff_members.store_id
 
-                for (const item of items) {
+                for (const item of verifiedItems) {
                     const slots = item.selectedSlots || [];
                     if (!slots.length) continue;
 
