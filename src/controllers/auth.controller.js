@@ -46,11 +46,18 @@ const AuthController = {
         }
     },
 
-    // Login with email/phone + password
+    // Login with email/phone + password — DISABLED (SEC-005)
+    // Primary login is Google auth. This endpoint stored passwords in plain
+    // text and compared without bcrypt. Disabled rather than deleted so any
+    // caller gets a clear error instead of 404.
     login: async (req, res) => {
-        try {
+        return res.status(410).json({
+            success: false,
+            message: 'Password login is no longer supported. Please sign in with Google.'
+        });
+        try {  // dead code kept for reference, remove after confirmed stable
             const { identifier, password } = req.body;
-            
+
             const result = await pool.query(
                 'SELECT * FROM tenants WHERE email = $1 OR phone = $1',
                 [identifier]
@@ -132,7 +139,7 @@ const discountService = require('../services/discount.service');
     sendOTP: async (req, res) => {
         try {
             const { phone } = req.body;
-            
+
             if (!phone || phone.length !== 10) {
                 return res.status(400).json({
                     success: false,
@@ -140,27 +147,14 @@ const discountService = require('../services/discount.service');
                 });
             }
 
-            // Block hidden or deleted tenants before an OTP is ever sent —
-            // otherwise they'd see the OTP entry screen and only get blocked
-            // after typing a code in, which is confusing. A brand-new phone
-            // number (no tenant row yet) is fine to proceed as normal.
-            const existing = await pool.query(
-                'SELECT status, deleted_at FROM tenants WHERE phone = $1',
-                [phone]
-            );
-            if (existing.rows.length > 0) {
-                if (existing.rows[0].deleted_at) {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'This account has been deleted. Please contact support.'
-                    });
-                }
-                if (existing.rows[0].status === 'hidden') {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'Your account has been disabled. Please contact support.'
-                    });
-                }
+            // SECURITY: OTP login is disabled for real users — only test mobiles
+            // allowed. Primary login is Google auth.
+            const TEST_MOBILES = (process.env.TEST_MOBILES || '').split(',').map(m => m.trim()).filter(Boolean);
+            if (!TEST_MOBILES.includes(phone)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Mobile login is not available. Please use Google to sign in.'
+                });
             }
 
             const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
@@ -206,20 +200,22 @@ const discountService = require('../services/discount.service');
                 });
             }
 
-            // Test mobiles — accept hardcoded OTP 201807
-            const TEST_MOBILES = (process.env.TEST_MOBILES || '').split(',').map(m => m.trim());
+            // SECURITY: OTP login is disabled for real users — only test mobiles
+            const TEST_MOBILES = (process.env.TEST_MOBILES || '').split(',').map(m => m.trim()).filter(Boolean);
             const isTestMobile = TEST_MOBILES.includes(phone);
-            
-            if (isTestMobile && otp === '201807') {
-                // Valid test OTP — skip OTPService verification
-            } else {
-                const verifyResult = await OTPService.verifyOTP(phone, otp, 'tenant_login');
-                if (!verifyResult.valid) {
-                    return res.status(400).json({
-                        success: false,
-                        message: verifyResult.error || 'Invalid OTP'
-                    });
-                }
+
+            if (!isTestMobile) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Mobile login is not available. Please use Google to sign in.'
+                });
+            }
+
+            if (otp !== '201807') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid OTP'
+                });
             }
 
             const JWT_SECRET = process.env.JWT_SECRET;
