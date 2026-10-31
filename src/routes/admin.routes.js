@@ -668,13 +668,13 @@ router.put('/stores/:id/video-toggle', authenticateAdmin, async (req, res) => {
 
 // Trial admin routes
 const TrialController = require('../controllers/trial.controller');
-router.post('/stores/:id/trial/enable', TrialController.adminEnableTrial);
-router.get('/trial/extension-requests', TrialController.getExtensionRequests);
-router.post('/trial/extension-requests/:requestId/accept', TrialController.acceptExtension);
-router.post('/trial/extension-requests/:requestId/reject', TrialController.rejectExtension);
+router.post('/stores/:id/trial/enable', authenticateAdmin, TrialController.adminEnableTrial);
+router.get('/trial/extension-requests', authenticateAdmin, TrialController.getExtensionRequests);
+router.post('/trial/extension-requests/:requestId/accept', authenticateAdmin, TrialController.acceptExtension);
+router.post('/trial/extension-requests/:requestId/reject', authenticateAdmin, TrialController.rejectExtension);
 
 // Store storage info
-router.get('/stores/:id/storage', async (req, res) => {
+router.get('/stores/:id/storage', authenticateAdmin, async (req, res) => {
     const pool = require('../config/database');
     const { id } = req.params;
     const LIMIT = 20 * 1024 * 1024; // 20MB

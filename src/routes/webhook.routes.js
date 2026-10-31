@@ -12,13 +12,20 @@ router.post('/cashfree', express.raw({ type: 'application/json' }), async (req, 
         const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
         const settings = await getSettings();
 
-        // Temporarily log signature for debugging
-        console.log('🔑 Signature:', signature ? signature.substring(0,20) : 'none');
-        console.log('🔑 pg_secret exists:', !!settings.pg_secret);
-        // Skip signature verification for now
-        // if (!verifyWebhookSignature(rawBody, signature, settings.pg_secret)) {
-        //     return res.status(401).json({ success: false, error: 'Invalid signature' });
-        // }
+        // Verify Cashfree webhook signature (HMAC-SHA256)
+        if (!signature) {
+            console.warn('⚠️ Webhook received with no signature — rejected');
+            return res.status(401).json({ success: false, error: 'Missing webhook signature' });
+        }
+        if (!settings.pg_secret) {
+            console.error('❌ pg_secret not configured — cannot verify webhook signature');
+            return res.status(500).json({ success: false, error: 'Payment gateway not configured' });
+        }
+        if (!verifyWebhookSignature(rawBody, signature, settings.pg_secret)) {
+            console.warn('⚠️ Webhook signature mismatch — rejected');
+            return res.status(401).json({ success: false, error: 'Invalid signature' });
+        }
+        console.log('✅ Webhook signature verified');
 
         console.log('📦 Raw body type:', typeof rawBody, 'length:', rawBody.length);
         const event = JSON.parse(rawBody);

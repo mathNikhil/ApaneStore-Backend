@@ -78,10 +78,29 @@ router.post('/google', async (req, res) => {
 });
 
 // Link existing phone tenant to Google account
+// SECURITY: We re-verify the Google idToken server-side here.
+// The frontend sends `credential` (the raw Google idToken), NOT a raw googleId.
+// This prevents phone-takeover: an attacker cannot claim another user's phone
+// by supplying a forged googleId in the request body.
 router.post('/google/link-phone', async (req, res) => {
     try {
-        const { googleId, email, name, phone } = req.body;
-        if (!googleId || !phone) return res.status(400).json({ success: false, error: 'Missing fields' });
+        const { credential, phone } = req.body;
+        if (!credential || !phone) return res.status(400).json({ success: false, error: 'Missing fields' });
+
+        // Verify the Google idToken with Google's servers
+        let googleId, email, name;
+        try {
+            const ticket = await client.verifyIdToken({
+                idToken: credential,
+                audience: process.env.GOOGLE_CLIENT_ID,
+            });
+            const payload = ticket.getPayload();
+            googleId = payload.sub;
+            email = payload.email;
+            name = payload.name;
+        } catch (verifyErr) {
+            return res.status(401).json({ success: false, error: 'Invalid Google credential. Please sign in with Google again.' });
+        }
 
         const phoneClean = phone.replace(/\D/g, '');
         const existing = await pool.query(
@@ -90,7 +109,7 @@ router.post('/google/link-phone', async (req, res) => {
 
         if (existing.rows.length > 0) {
             const tenant = existing.rows[0];
-            // Link google_id and update email if needed
+            // Link google_id (verified) and update email if needed
             await pool.query(
                 'UPDATE tenants SET google_id=$1, email=COALESCE(NULLIF(email,\'\'), $2) WHERE id=$3',
                 [googleId, email, tenant.id]
@@ -114,7 +133,7 @@ router.post('/google/link-phone', async (req, res) => {
             });
         } else {
             // Phone not found — new tenant
-            return res.json({ success: true, linked: false });
+            return res.json({ success: true, linked: false, googleId, email, name });
         }
     } catch(e) {
         if (e.code === '23505') {
@@ -152,10 +171,17 @@ router.post('/google/complete', async (req, res) => {
         }
 
         // SECURITY: business_type must be a valid tenant category. 'admin' is never allowed here.
+        // Values must match what the frontend registration form sends exactly.
         const ALLOWED_BUSINESS_TYPES = new Set([
+            'grocery_kirana', 'fashion_clothing', 'food_restaurant', 'bakery_sweets',
+            'electronics_gadgets', 'beauty_cosmetics', 'health_pharmacy', 'home_furniture',
+            'jewellery', 'books_stationery', 'organic_natural', 'sports_fitness',
+            'toys_kids', 'gifts_handicrafts', 'pet_supplies', 'automotive',
+            'services', 'other',
+            // legacy short-form values — kept for any existing tenants
             'retail', 'fashion', 'electronics', 'grocery', 'food', 'pharmacy',
             'beauty', 'sports', 'books', 'furniture', 'jewelry', 'toys',
-            'automotive', 'hardware', 'pet', 'flowers', 'art', 'tenant'
+            'hardware', 'pet', 'flowers', 'art', 'tenant'
         ]);
         if (!ALLOWED_BUSINESS_TYPES.has(business_type)) {
             return res.status(400).json({ success: false, error: 'Invalid business type' });
