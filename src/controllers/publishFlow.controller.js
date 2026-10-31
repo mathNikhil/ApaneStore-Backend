@@ -394,48 +394,34 @@ const PublishFlowController = {
                 ? parseFloat((originalFinalAmt - parseFloat(totalAmount)).toFixed(2))
                 : 0;
 
-            const subscriptionResult = await pool.query(
-                `INSERT INTO store_subscriptions
-                    (store_id, plan_key, plan_name, billing_cycle, base_amount, tax_amount, total_amount,
-                     payment_status, payment_method, paid_at, valid_until, updated_at,
-                     platform_coupon_code, platform_coupon_discount)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,NOW(),NOW()+($9||' days')::interval,NOW(),$10,$11)
-                 ON CONFLICT (store_id) DO UPDATE
-                 SET plan_key=$2, plan_name=$3, billing_cycle=$4, base_amount=$5, tax_amount=$6,
-                     total_amount=$7, payment_status='paid', payment_method=$8,
-                     paid_at=NOW(), valid_until=NOW()+($9||' days')::interval, updated_at=NOW(),
-                     platform_coupon_code=$10, platform_coupon_discount=$11
-                 RETURNING *`,
-                [id, plan.plan_key, plan.display_name, plan.billing_cycle,
-                 baseAmount, taxAmount, totalAmount, paymentMethod || 'upi', plan.validity_days,
-                 platformCoupon ? platformCoupon.code : null,
-                 couponDiscountAmt > 0 ? couponDiscountAmt : null]
-            );
+            // SEC-011: Never mark payment as 'paid' or publish the store here.
+            // Create a pending_payments record and initiate a real Cashfree order.
+            // The webhook handler (webhook.routes.js) publishes the store only after
+            // Cashfree confirms that money actually moved.
+            const orderId = `store_${id}_${Date.now()}`;
 
-            const storeUpdateResult = await pool.query(
-                `UPDATE stores SET status='published', published_at=NOW(), updated_at=NOW()
-                 WHERE id=$1
-                 RETURNING id, store_id, store_name, subdomain, status, published_at`,
-                [id]
-            );
-
-            const { TERMS_VERSION } = require('../config/terms');
+            // Record what we expect to receive — the webhook fills this in on success.
+            // Coupon claims are recorded separately below after Cashfree accepts.
             await pool.query(
-                `INSERT INTO terms_acceptances (tenant_id, store_id, terms_version, ip_address)
-                 VALUES ($1,$2,$3,$4)`,
-                [tenantId, id, TERMS_VERSION, req.ip || req.headers['x-forwarded-for'] || null]
+                `INSERT INTO pending_payments
+                    (order_id, store_id, tenant_id, plan_key, plan_name, billing_cycle,
+                     base_amount, tax_amount, total_amount, validity_days, status, terms_accepted)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11)
+                 ON CONFLICT (order_id) DO NOTHING`,
+                [
+                    orderId, id, tenantId,
+                    plan.plan_key, plan.display_name, plan.billing_cycle,
+                    baseAmount, taxAmount, totalAmount, plan.validity_days,
+                    termsAccepted,
+                ]
             );
 
-            await discountService.incrementPublishCount(tenantId);
-            if (discountCalc?.usableReferrals) await discountService.creditReferrals(tenantId, discountCalc.usableReferrals);
-
-            // Record platform coupon claim
+            // Pre-claim the platform coupon so it can't be reused while payment is in flight
             if (platformCoupon) {
                 try {
                     await pool.query(
                         `INSERT INTO platform_coupon_claims (coupon_id, store_id)
-                         VALUES ($1, $2)
-                         ON CONFLICT (coupon_id, store_id) DO NOTHING`,
+                         VALUES ($1, $2) ON CONFLICT (coupon_id, store_id) DO NOTHING`,
                         [platformCoupon.id, id]
                     );
                     await pool.query(
@@ -443,8 +429,7 @@ const PublishFlowController = {
                          SET claimed_count = claimed_count + 1,
                              status = CASE
                                  WHEN max_stores IS NOT NULL AND claimed_count + 1 >= max_stores THEN 'exhausted'
-                                 ELSE status
-                             END
+                                 ELSE status END
                          WHERE id = $1`,
                         [platformCoupon.id]
                     );
@@ -453,11 +438,38 @@ const PublishFlowController = {
                 }
             }
 
+            // Record terms acceptance now — idempotent, so safe to do before payment
+            const { TERMS_VERSION } = require('../config/terms');
+            await pool.query(
+                `INSERT INTO terms_acceptances (tenant_id, store_id, terms_version, ip_address)
+                 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+                [tenantId, id, TERMS_VERSION, req.ip || req.headers['x-forwarded-for'] || null]
+            );
+
+            // Initiate Cashfree payment — throws if Cashfree rejects it
+            const tenantDetailsResult = await pool.query(
+                'SELECT company_name, email, mobile FROM tenants WHERE id = $1', [tenantId]
+            );
+            const td = tenantDetailsResult.rows[0] || {};
+            const API_URL = process.env.FRONTEND_URL || 'https://aapnaestore.com';
+
+            const cashfreeOrder = await cashfreeService.createOrder({
+                orderId,
+                amount: totalAmount,
+                customerName: td.company_name || 'Tenant',
+                customerEmail: td.email || `${td.mobile}@temp.com`,
+                customerPhone: td.mobile || tenantMobile,
+                returnUrl: `${API_URL}/store-builder/publish/success?storeId=${id}&orderId=${orderId}`,
+            });
+
+            // Return payment session to the frontend — store will be published by webhook
             res.json({
                 success: true,
                 data: {
-                    subscription: subscriptionResult.rows[0],
-                    store: storeUpdateResult.rows[0],
+                    orderId,
+                    paymentSessionId: cashfreeOrder.payment_session_id,
+                    amount: totalAmount,
+                    discount: discountCalc,
                 },
             });
         } catch (error) {
