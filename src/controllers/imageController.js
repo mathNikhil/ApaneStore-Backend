@@ -178,12 +178,14 @@ class ImageController {
         }
     }
 
-    // Delete an image
+    // Delete an image (SEC-013: authenticate middleware must run first)
     static async deleteImage(req, res) {
         try {
             const { imageId } = req.params;
-            
-            const result = await ImageService.deleteImage(imageId);
+            // req.tenantId is set by the authenticate middleware
+            const tenantId = req.tenantId;
+
+            const result = await ImageService.deleteImage(imageId, tenantId);
 
             return res.status(200).json({
                 success: true,
@@ -192,6 +194,10 @@ class ImageController {
             });
 
         } catch (error) {
+            // Ownership check failures surface as 403
+            if (error.message === 'Forbidden') {
+                return res.status(403).json({ success: false, error: 'Not authorised to delete this image' });
+            }
             return res.status(500).json({
                 success: false,
                 error: error.message

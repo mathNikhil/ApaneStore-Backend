@@ -1,6 +1,16 @@
 const crypto = require('crypto');
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'apnaestore_default_key_32chars!!!';
+// SEC-016: Never fall back to a hardcoded key — if the env var is missing
+// the server must refuse to start rather than silently use a public default.
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+if (!ENCRYPTION_KEY) {
+    throw new Error(
+        'ENCRYPTION_KEY environment variable is not set. ' +
+        'Add a random 32-char secret to your .env file before starting the server. ' +
+        'Example: openssl rand -hex 16'
+    );
+}
+
 const IV_LENGTH = 16;
 const KEY = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
 

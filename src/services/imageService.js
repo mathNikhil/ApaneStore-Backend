@@ -123,11 +123,16 @@ class ImageService {
     }
 
     // Delete an image (hard delete)
-    static async deleteImage(imageId) {
+    static async deleteImage(imageId, tenantId) {
         // Get image record
         const image = await StoreImage.findById(imageId);
         if (!image) {
             throw new Error('Image not found');
+        }
+
+        // SEC-013: verify caller owns this image
+        if (tenantId && String(image.tenant_id) !== String(tenantId)) {
+            throw new Error('Forbidden');
         }
 
         // Delete file from filesystem

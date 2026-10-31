@@ -3,6 +3,7 @@ const router = express.Router();
 const ImageController = require('../controllers/imageController');
 const { uploadSingle, uploadMultiple, handleMulterError } = require('../middleware/upload');
 const { validateSingleImage, validateMultipleImages } = require('../middleware/imageValidation');
+const { authenticate } = require('../middleware/auth');
 
 // ==================== PUBLIC ROUTES ====================
 router.get('/images/requirements', ImageController.getAllRequirements);
@@ -109,6 +110,8 @@ router.post(
 router.get('/products/:productId/images', ImageController.getProductImages);
 
 // ==================== DELETE ROUTES ====================
-router.delete('/images/:imageId', ImageController.deleteImage);
+// SEC-013: authenticate verifies the JWT and sets req.tenantId;
+// the controller passes it to the service which checks ownership.
+router.delete('/images/:imageId', authenticate, ImageController.deleteImage);
 
 module.exports = router;
