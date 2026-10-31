@@ -364,18 +364,28 @@ app.post('/api/webhooks/store-payment/:storeId', express.raw({ type: 'applicatio
         const rawBody = req.body.toString();
         const event = JSON.parse(rawBody);
 
-        // Verify signature if secret exists
-        if (gatewayResult.rows.length > 0) {
-            const secretKey = decrypt(gatewayResult.rows[0].encrypted_secret_key);
-            const signature = req.headers['x-webhook-signature'];
-            const timestamp = req.headers['x-webhook-timestamp'];
-            if (signature && timestamp) {
-                const signedPayload = timestamp + rawBody;
-                const expectedSig = crypto.createHmac('sha256', secretKey).update(signedPayload).digest('base64');
-                if (signature !== expectedSig) {
-                    return res.status(401).json({ success: false, error: 'Invalid signature' });
-                }
-            }
+        // ── SECURITY: Verify Cashfree webhook signature (SEC-WEBHOOK-STORE) ────
+        // If no store secret is configured we cannot verify — reject rather than
+        // process an unauthenticated event.  If a secret IS configured, both
+        // signature and timestamp headers must be present and valid; missing
+        // headers are also rejected so an attacker can't bypass verification by
+        // simply omitting them.
+        if (gatewayResult.rows.length === 0) {
+            console.warn(`⚠️ store-payment webhook: no Cashfree secret configured for storeId=${storeId} — rejected`);
+            return res.status(401).json({ success: false, error: 'Payment gateway not configured for this store' });
+        }
+        const secretKey = decrypt(gatewayResult.rows[0].encrypted_secret_key);
+        const signature = req.headers['x-webhook-signature'];
+        const timestamp = req.headers['x-webhook-timestamp'];
+        if (!signature || !timestamp) {
+            console.warn(`⚠️ store-payment webhook: missing signature/timestamp headers storeId=${storeId} — rejected`);
+            return res.status(401).json({ success: false, error: 'Missing webhook signature' });
+        }
+        const signedPayload = timestamp + rawBody;
+        const expectedSig = crypto.createHmac('sha256', secretKey).update(signedPayload).digest('base64');
+        if (signature !== expectedSig) {
+            console.warn(`⚠️ store-payment webhook: signature mismatch storeId=${storeId} — rejected`);
+            return res.status(401).json({ success: false, error: 'Invalid webhook signature' });
         }
 
         const eventType = event.type || event.event;

@@ -252,7 +252,7 @@ router.post('/groups', async (req, res) => {
 
 router.delete('/groups/:groupId', async (req, res) => {
   await db.query(
-    `DELETE FROM wa_groups WHERE id=$1 AND store_id=$2`,
+    `DELETE FROM wa_groups WHERE id=$1 AND tenant_id=$2`,
     [req.params.groupId, req.tenantId]
   );
   res.json({ success: true });
