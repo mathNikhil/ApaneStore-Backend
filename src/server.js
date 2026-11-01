@@ -294,14 +294,16 @@ app.use('/api/addon-plans',             addonPublicRoutes);
 
 // Public webhook — Cashfree calls this directly with its own signature,
 // never a tenant JWT, so it must NOT sit behind authenticate middleware.
-// 🔧 TODO: add signature verification here once real Cashfree credentials
-// are wired — see PaymentGatewayController.cashfreeKycWebhook.
+// SEC-037: /api/webhooks/cashfree/payment/:storeId (old, unverified handler)
+// has been REMOVED. The secure handler at /api/webhooks/store-payment/:storeId
+// verifies HMAC-SHA256 + timestamp before processing any payment event.
+// notify_url in createCashfreeOrder now points to the secure handler.
 const PaymentGatewayController = require('./controllers/paymentGateway.controller');
 const webhookRoutes = require('./routes/webhook.routes');
 app.post('/api/store/:storeId/cashfree/create-order', PaymentGatewayController.createCashfreeOrder);
 app.post('/api/webhooks/cashfree/kyc-status', PaymentGatewayController.cashfreeKycWebhook);
 app.use('/api/webhooks', webhookRoutes);
-app.post('/api/webhooks/cashfree/payment/:storeId', PaymentGatewayController.cashfreePaymentWebhook);
+// NOTE: cashfreePaymentWebhook (old insecure handler) intentionally removed — do not re-add.
 
 app.use('/api/products', productRoutes);
 app.use('/api/products', require('./routes/video.routes'));

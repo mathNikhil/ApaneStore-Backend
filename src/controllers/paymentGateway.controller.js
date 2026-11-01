@@ -165,7 +165,7 @@ const PaymentGatewayController = {
                         customer_phone: customerPhone || '9999999999',
                     },
                     order_meta: {
-                        notify_url: `https://api.aapnaestore.com/api/webhooks/cashfree/payment/${storeId}`,
+                        notify_url: `https://api.aapnaestore.com/api/webhooks/store-payment/${storeId}`,
                     }
                 })
             });
