@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router({ mergeParams: true });
 const pool = require('../../config/database');
 const rateLimit = require('express-rate-limit');
+const { customerAuth } = require('../../middleware/customerAuth');
 
 // SEC-023: Per-IP rate limit on /use so an attacker can't script-exhaust
 // a coupon's max_uses. 10 coupon uses per IP per 15 minutes is generous
@@ -147,8 +148,9 @@ router.post('/use', couponUseLimiter, async (req, res) => {
 });
 
 // GET /api/store/:storeId/coupons/available
-// Public — lists all active coupons for the store matching the cart
-router.get('/available', async (req, res) => {
+// Requires customer login — prevents unauthenticated scraping of all coupon
+// codes and discount values (full promotional strategy would be exposed).
+router.get('/available', customerAuth, async (req, res) => {
     try {
         const { storeId } = req.params;
         const { order_value = 0, product_ids = '', category_ids = '' } = req.query;
@@ -194,11 +196,11 @@ router.get('/available', async (req, res) => {
                 min_order_value: parseFloat(c.min_order_value) || 0,
                 scope: c.scope,
                 scope_items: c.scope_items || [],
-                applicable_to: c.applicable_to || 'both', // 'dine_in', 'delivery', 'both'
-                end_at: c.end_at,   // ISO string — client expiry guard
+                applicable_to: c.applicable_to || 'both',
+                end_at: c.end_at,
                 start_at: c.start_at,
-                max_uses: c.max_uses,     // null = unlimited
-                current_uses: c.current_uses,
+                // max_uses and current_uses intentionally omitted — exposes
+                // usage analytics and remaining quota to unauthenticated callers
             }))
         });
     } catch (err) {

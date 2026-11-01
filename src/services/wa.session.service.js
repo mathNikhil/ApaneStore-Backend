@@ -13,6 +13,10 @@ const db       = require('../config/database');
 
 const SESSION_DIR = path.join(__dirname, '../../sessions');
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
+// Restrict sessions directory to owner (app process) only — creds.json files
+// contain WhatsApp session private keys; world-readable would let any process
+// on the same box hijack any store's WhatsApp account.
+try { fs.chmodSync(SESSION_DIR, 0o700); } catch (_) { /* non-fatal — log silently */ }
 
 // In-memory socket map  storeId → socket
 const sockets = new Map();
@@ -30,6 +34,8 @@ async function createSession(storeId, { onQR, onReady, onDisconnect } = {}) {
   }
 
   const sessionPath = path.join(SESSION_DIR, `tenant_${storeId}`);
+  if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
+  try { fs.chmodSync(sessionPath, 0o700); } catch (_) { /* non-fatal */ }
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
   const sock = makeWASocket({
