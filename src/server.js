@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 // Route imports
 const authRoutes = require('./routes/auth.routes');
@@ -227,12 +227,34 @@ app.use(express.json({ limit: '10mb', type: ['application/json', 'text/plain'] }
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded images
-app.use('/uploads/tenants', (req, res, next) => {
+// SEC-021: return photos require a VALID session token, not just any Bearer string.
+// We check both session tables — store owner (store_admin_credentials) and staff
+// (service.staff_sessions) — so either role can view the photos they need to action.
+app.use('/uploads/tenants', async (req, res, next) => {
     if (req.path.includes('/returns/')) {
         const authHeader = req.headers.authorization;
         const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
         if (!token) {
             return res.status(401).json({ success: false, error: 'Authentication required' });
+        }
+        try {
+            const pool = require('./config/database');
+            const [ownerRes, staffRes] = await Promise.all([
+                pool.query(
+                    'SELECT 1 FROM store_admin_credentials WHERE active_session_token = $1',
+                    [token]
+                ),
+                pool.query(
+                    'SELECT 1 FROM service.staff_sessions WHERE token = $1',
+                    [token]
+                ),
+            ]);
+            if (ownerRes.rows.length === 0 && staffRes.rows.length === 0) {
+                return res.status(401).json({ success: false, error: 'Invalid or expired session' });
+            }
+        } catch (err) {
+            console.error('❌ Return photo auth check failed:', err.message);
+            return res.status(500).json({ success: false, error: 'Authentication check failed' });
         }
     }
     next();

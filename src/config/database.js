@@ -572,6 +572,10 @@ const runColumnMigrations = async () => {
         )`,
         `CREATE INDEX IF NOT EXISTS idx_wa_send_queue_store ON wa_send_queue(store_id, status)`,
         `ALTER TABLE wa_send_queue ALTER COLUMN customer_phone DROP NOT NULL`,
+        // SEC-028: bcrypt migration — add password_hash column alongside the legacy
+        // password_encrypted column. Both exist during rollout; login accepts either.
+        `ALTER TABLE store_admin_credentials ADD COLUMN IF NOT EXISTS password_hash TEXT`,
+        `CREATE INDEX IF NOT EXISTS idx_store_admin_creds_has_hash ON store_admin_credentials (store_id) WHERE password_hash IS NOT NULL`,
     ];
 
     let applied = 0;

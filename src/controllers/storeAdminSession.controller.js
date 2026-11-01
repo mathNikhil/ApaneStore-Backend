@@ -1,5 +1,6 @@
 const { logActivity, checkSuspiciousActivity } = require('../middleware/activityLogger');
 const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 const pool = require('../config/database');
 const { decrypt } = require('../utils/encryption');
 const { OAuth2Client } = require('google-auth-library');
@@ -71,7 +72,7 @@ const StoreAdminSessionController = {
             }
 
             const credResult = await pool.query(
-                'SELECT password_encrypted, active_session_token, session_last_active FROM store_admin_credentials WHERE store_id = $1',
+                'SELECT password_encrypted, password_hash, active_session_token, session_last_active FROM store_admin_credentials WHERE store_id = $1',
                 [store.id]
             );
             if (credResult.rows.length === 0) {
@@ -82,15 +83,36 @@ const StoreAdminSessionController = {
             }
             const cred = credResult.rows[0];
 
-            let actualPassword;
-            try {
-                actualPassword = decrypt(cred.password_encrypted);
-            } catch (e) {
-                console.error('❌ Failed to decrypt stored admin password:', e);
-                return res.status(500).json({ success: false, error: 'Server configuration error' });
+            // SEC-028: prefer bcrypt hash; fall back to legacy AES-encrypted value
+            // during the rolling migration. Once a row has a password_hash the
+            // password_encrypted column is NULL — the two are mutually exclusive
+            // from this point forward.
+            let passwordMatch = false;
+            if (cred.password_hash) {
+                try {
+                    passwordMatch = await bcrypt.compare(password, cred.password_hash);
+                } catch (e) {
+                    console.error('❌ bcrypt compare failed:', e);
+                    return res.status(500).json({ success: false, error: 'Server configuration error' });
+                }
+            } else if (cred.password_encrypted) {
+                // Legacy AES path — still active until tenant regenerates password
+                try {
+                    const actualPassword = decrypt(cred.password_encrypted);
+                    passwordMatch = (password === actualPassword);
+                } catch (e) {
+                    console.error('❌ Failed to decrypt stored admin password:', e);
+                    return res.status(500).json({ success: false, error: 'Server configuration error' });
+                }
+            } else {
+                // Neither column has a value — credentials row is corrupt
+                return res.status(401).json({
+                    success: false,
+                    error: 'Store Admin credentials are not configured. Ask the store owner to generate a password.',
+                });
             }
 
-            if (password !== actualPassword) {
+            if (!passwordMatch) {
                 await logActivity('store_admin_login_failed', req, false, subdomain, `Invalid password | lockKey: ${lockKey}`);
                 await checkSuspiciousActivity(req);
                 return res.status(401).json({ success: false, error: 'Invalid password' });

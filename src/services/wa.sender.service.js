@@ -55,6 +55,41 @@ async function resolvePhones(tenantId, recipients) {
   return [...new Set(phones)];
 }
 
+// ─── SEC-017: SSRF guard for media URLs ──────────────────────────────────────
+// mediaUrl values come from DB rows written by tenants. We only allow HTTPS
+// URLs that point to our own API server (API_URL) or the canonical app domain.
+// Everything else — http://, file://, internal IPs, AWS metadata endpoint,
+// anything not on the allowlist — is rejected before axios ever sees it.
+const ALLOWED_MEDIA_ORIGINS = (() => {
+  const origins = new Set();
+  // Always allow our own API server
+  const apiUrl = process.env.API_URL || '';
+  if (apiUrl) {
+    try { origins.add(new URL(apiUrl).origin); } catch (_) {}
+  }
+  // Static canonical origins that will always be safe
+  origins.add('https://api.aapnaestore.com');
+  origins.add('https://aapnaestore.com');
+  origins.add('https://www.aapnaestore.com');
+  return origins;
+})();
+
+function assertSafeMediaUrl(url) {
+  if (!url) return; // null/undefined is fine — caller skips the fetch
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (_) {
+    throw new Error(`SEC-017: Invalid mediaUrl — not a valid URL: ${url}`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`SEC-017: mediaUrl must use HTTPS (got "${parsed.protocol}"): ${url}`);
+  }
+  if (!ALLOWED_MEDIA_ORIGINS.has(parsed.origin)) {
+    throw new Error(`SEC-017: mediaUrl origin "${parsed.origin}" is not in the allowed list`);
+  }
+}
+
 // ─── Send one image message — PERSONAL ──────────────────────────────────────
 async function sendPersonal({ tenantId, phone, mediaUrl, caption, gapSeconds = 2 }) {
   const sock = getSocket(tenantId);
@@ -64,6 +99,8 @@ async function sendPersonal({ tenantId, phone, mediaUrl, caption, gapSeconds = 2
   const jid = phone.replace(/\D/g, '') + '@s.whatsapp.net';
 
   if (mediaUrl) {
+    // SEC-017: Reject any URL that doesn't point at our own servers
+    assertSafeMediaUrl(mediaUrl);
     // Fetch image as buffer and send as image+caption
     const imgRes = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
     const buffer = Buffer.from(imgRes.data);
@@ -80,6 +117,10 @@ async function sendPersonal({ tenantId, phone, mediaUrl, caption, gapSeconds = 2
 // ─── Send one image message — WABA ───────────────────────────────────────────
 async function sendWaba({ phone, mediaUrl, templateVars, config }) {
   const { phone_number_id, access_token, template_name, template_lang, environment } = config;
+
+  // SEC-017: validate mediaUrl even for WABA — the URL goes into the Meta API
+  // payload, and a bad URL could still expose internal infra to Meta's crawler.
+  if (mediaUrl) assertSafeMediaUrl(mediaUrl);
 
   const baseUrl = environment === 'production'
     ? 'https://graph.facebook.com/v20.0'
