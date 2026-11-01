@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const pool = require('../config/database');
 const logger = require('../config/logger');
 const { generateSlug } = require('../utils/slug');
@@ -55,7 +56,10 @@ class StoreController {
             // empty-slug edge case are handled inside generateSlug().
             const subdomain = generateSlug(storeName);
 
-            const storeId = `STORE_${Date.now()}`;
+            // SEC-034: Use random alphanumeric ID instead of sequential timestamp
+            // so store IDs can't be enumerated by crawling /api/store/1, /api/store/2...
+            // Format: 3 letters + 4 digits + 3 letters = e.g. "XKB7429MQP"
+            const storeId = crypto.randomBytes(5).toString('hex').toUpperCase().slice(0, 10);
 
             const config = {
                 brand: { storeName, tagline, logoUrl, bannerUrl, brandColors, fonts, baseFontSize },

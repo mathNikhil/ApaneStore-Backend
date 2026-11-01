@@ -140,6 +140,19 @@ const customerOtpLimiter = rateLimit({
     keyGenerator: (req) => `customerotp:${req.ip}:${req.body?.phone || ''}`,
 });
 
+// SEC-034: Per-IP rate limit on all /api/store/:storeId/* routes to prevent
+// store ID enumeration — an attacker crawling /api/store/1, /api/store/2...
+// will hit this limit long before mapping the full store list.
+const storeEnumerationLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    message: { success: false, error: 'Too many requests, please slow down.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `storeenum:${req.ip}`,
+    skip: (req) => req.method === 'OPTIONS',
+});
+
 // Keep superAdminLimiter as alias for backward compat
 const superAdminLimiter = superAdminLoginLimiter;
 
@@ -501,6 +514,7 @@ app.get('/api/public/pricing-plans', async (req, res) => {
 
 app.use('/api/terms', termsRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/store/:storeId', storeEnumerationLimiter);
 app.use('/api/store/:storeId/auth/otp', customerOtpLimiter);
 app.use('/api/store/:storeId/auth', customerRoutes);
 app.use('/api/store/:storeId/cart', customerCartRoutes);
