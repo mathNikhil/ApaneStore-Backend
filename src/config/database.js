@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
 // SEC-033: Crash on startup if required DB env vars are missing — no silent fallback
 // to a hardcoded password that might accidentally connect to the wrong database.
