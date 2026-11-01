@@ -6,7 +6,7 @@ const logger = require('../config/logger');
 // rate limiting lives here in one place, so both flows are protected
 // identically rather than needing the same logic duplicated twice.
 //
-// Three separate limits, each catching a different abuse pattern:
+// Four separate limits, each catching a different abuse pattern:
 //  - Resend cooldown: stops rapid double-clicks / accidental double-sends
 //    to the same phone (each SMS costs money regardless of who pays).
 //  - Per-phone window: stops someone hammering ONE phone number with
@@ -16,12 +16,20 @@ const logger = require('../config/logger');
 //    catch this, since each individual number would still look "fine."
 //  - Per-phone failed-verify limit: stops brute-forcing a 6-digit OTP
 //    (1,000,000 possible codes) within its validity window.
+//  - Exponential backoff (SEC-025b): after MAX_VERIFY_ATTEMPTS fail,
+//    the phone is locked for an escalating period — 1 min after first
+//    failed cycle, 5 min after second, 30 min after third+. This
+//    survives across OTP resends so an attacker can't just get a fresh
+//    OTP every 60 seconds and keep trying.
 const RESEND_COOLDOWN_SECONDS = 60;
 const PHONE_WINDOW_MINUTES = 10;
 const PHONE_WINDOW_MAX = 3;
 const IP_WINDOW_MINUTES = 60;
 const IP_WINDOW_MAX = 10;
 const MAX_VERIFY_ATTEMPTS = 5;
+
+// Lockout durations per failed cycle (seconds): 1 min, 5 min, 30 min, 30 min...
+const LOCKOUT_DURATIONS = [60, 300, 1800];
 
 class OTPService {
     static generateOTP(length = 6) {
@@ -40,6 +48,29 @@ class OTPService {
     // when blocked, so callers can respond with 429 instead of 200.
     static async sendOTP(phone, email = null, purpose = 'login', ipAddress = null) {
         try {
+            // 0. Exponential backoff — check if this phone is currently locked out
+            // due to repeated failed verify cycles. Lockout survives resends so an
+            // attacker can't reset their attempt count by requesting a fresh OTP.
+            const lockResult = await pool.query(
+                `SELECT locked_until, failed_cycles FROM otp_audit
+                 WHERE phone = $1 AND purpose = $2
+                 ORDER BY created_at DESC LIMIT 1`,
+                [phone, purpose]
+            );
+            if (lockResult.rows.length > 0) {
+                const { locked_until, failed_cycles } = lockResult.rows[0];
+                if (locked_until && new Date(locked_until) > new Date()) {
+                    const waitSeconds = Math.ceil((new Date(locked_until) - Date.now()) / 1000);
+                    const waitMinutes = Math.ceil(waitSeconds / 60);
+                    return {
+                        success: false,
+                        rateLimited: true,
+                        lockedOut: true,
+                        error: `Too many failed attempts. Please try again in ${waitMinutes} minute${waitMinutes > 1 ? 's' : ''}.`,
+                    };
+                }
+            }
+
             // 1. Resend cooldown — most recent OTP to this phone+purpose
             const lastResult = await pool.query(
                 `SELECT created_at FROM otp_audit
@@ -137,18 +168,34 @@ class OTPService {
             const record = result.rows[0];
 
             if ((record.attempts || 0) >= MAX_VERIFY_ATTEMPTS) {
+                // SEC-025b: This OTP is exhausted. Apply exponential backoff lockout
+                // based on how many failed cycles this phone has had. The lockout
+                // is stored on the most recent row so sendOTP will see it.
+                const cycles = record.failed_cycles || 0;
+                const lockoutSeconds = LOCKOUT_DURATIONS[Math.min(cycles, LOCKOUT_DURATIONS.length - 1)];
+                await pool.query(
+                    `UPDATE otp_audit SET locked_until = NOW() + INTERVAL '${lockoutSeconds} seconds',
+                     failed_cycles = failed_cycles + 1 WHERE id = $1`,
+                    [record.id]
+                );
+                const waitMinutes = Math.ceil(lockoutSeconds / 60);
                 return {
                     valid: false,
-                    error: 'Too many failed attempts. Please request a new OTP.',
+                    lockedOut: true,
+                    error: `Too many failed attempts. Please try again in ${waitMinutes} minute${waitMinutes > 1 ? 's' : ''}.`,
                 };
             }
 
             // SEC-026: Compare against hash — stored value is SHA-256(otp)
             if (record.code !== this.hashOTP(otp)) {
-                await pool.query(`UPDATE otp_audit SET attempts = attempts + 1 WHERE id = $1`, [record.id]);
+                const newAttempts = (record.attempts || 0) + 1;
+                await pool.query(`UPDATE otp_audit SET attempts = $1 WHERE id = $2`, [newAttempts, record.id]);
+                const remaining = MAX_VERIFY_ATTEMPTS - newAttempts;
                 return {
                     valid: false,
-                    error: 'Invalid or expired OTP',
+                    error: remaining > 0
+                        ? `Invalid OTP. ${remaining} attempt${remaining > 1 ? 's' : ''} remaining.`
+                        : 'Invalid OTP.',
                 };
             }
 

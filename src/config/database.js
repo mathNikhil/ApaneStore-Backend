@@ -335,6 +335,11 @@ const runColumnMigrations = async () => {
         `ALTER TABLE otp_audit ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45)`,
         // SEC-026: code column was VARCHAR(6) — widen to hold SHA-256 hex (64 chars)
         `ALTER TABLE otp_audit ALTER COLUMN code TYPE VARCHAR(64)`,
+        // SEC-025b: Exponential backoff — tracks how many failed OTP cycles a
+        // phone has had so lockout duration can grow: 1 min → 5 min → 30 min.
+        // locked_until blocks new OTP sends; failed_cycles persists across OTPs.
+        `ALTER TABLE otp_audit ADD COLUMN IF NOT EXISTS failed_cycles INT DEFAULT 0`,
+        `ALTER TABLE otp_audit ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP`,
         // ✅ Same UUID-vs-INTEGER drift as before — schema.sql declares
         // orders.store_id as UUID, but the live stores.id is INTEGER. No
         // real order has ever existed (checkout only updated local browser
