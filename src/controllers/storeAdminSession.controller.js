@@ -302,7 +302,7 @@ const StoreAdminSessionController = {
                    AND pin = $3
                    AND is_active = true
                    AND permissions IS NOT NULL
-                   AND array_length(permissions, 1) > 0
+                   AND jsonb_array_length(permissions) > 0
                  LIMIT 1`,
                 [store.uuid, phone.trim(), String(pin).trim()]
             );
