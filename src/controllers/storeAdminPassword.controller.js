@@ -118,14 +118,12 @@ const StoreAdminPasswordController = {
 
             await pool.query(
                 `INSERT INTO store_admin_credentials
-                    (store_id, password_hash, password_encrypted, active_session_token, session_last_active, updated_at)
-                 VALUES ($1, $2, NULL, NULL, NULL, NOW())
+                    (store_id, password_hash, password_encrypted, updated_at)
+                 VALUES ($1, $2, NULL, NOW())
                  ON CONFLICT (store_id) DO UPDATE
-                 SET password_hash = $2,
+                 SET password_hash      = $2,
                      password_encrypted = NULL,
-                     active_session_token = NULL,
-                     session_last_active = NULL,
-                     updated_at = NOW()`,
+                     updated_at         = NOW()`,
                 [id, hash]
             );
 
