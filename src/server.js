@@ -88,6 +88,9 @@ const PORT = process.env.PORT || 5002;
 // Middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // COOP 'same-origin' (helmet default) blocks Google OAuth popup from
+    // posting back to window.opener — disable it so the popup callback works.
+    crossOriginOpenerPolicy: false,
     hsts: { maxAge: 31536000, includeSubDomains: true },
     contentSecurityPolicy: false,
 }));
