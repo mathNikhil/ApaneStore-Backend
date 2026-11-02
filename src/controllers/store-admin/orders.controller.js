@@ -1,6 +1,7 @@
 const { sendOrderEmail } = require('../../utils/sendOrderEmail');
 const pool = require('../../config/database');
 const logger = require('../../config/logger');
+const { checkVersion } = require('../../middleware/optimisticLock');
 
 class StoreAdminOrdersController {
     // Get all orders for a store
@@ -157,6 +158,11 @@ class StoreAdminOrdersController {
             }
 
             const oldStatus = checkResult.rows[0].status;
+
+            // Optimistic locking — reject if someone else saved a change after
+            // the client loaded this order (client sends X-Resource-Version header).
+            const conflict = await checkVersion(pool, 'orders', orderId, req);
+            if (conflict) return res.status(409).json(conflict);
 
             // ✅ FIX: these were never set on a manual status change before —
             // only the courier auto-tracking path set them. Without a real

@@ -36,31 +36,29 @@ const storeAdminAuth = async (req, res, next) => {
         }
         const storeIntId = storeRow.rows[0].id;
 
-        // ── 1. Try owner session ──────────────────────────────────────────────
-        const result = await pool.query(
-            'SELECT store_id, active_session_token, session_last_active, branch_id FROM store_admin_credentials WHERE store_id = $1',
-            [storeIntId]
+        // ── 1. Try owner session (owner_sessions table — multi-device) ──────────
+        const ownerSess = await pool.query(
+            `SELECT os.id, os.last_active, sac.branch_id
+             FROM owner_sessions os
+             LEFT JOIN store_admin_credentials sac ON sac.store_id = os.store_id
+             WHERE os.token = $1 AND os.store_id = $2
+             LIMIT 1`,
+            [token, storeIntId]
         );
 
-        if (result.rows.length > 0 && result.rows[0].active_session_token === token) {
-            const cred = result.rows[0];
-            const lastActive = cred.session_last_active ? new Date(cred.session_last_active).getTime() : Date.now();
+        if (ownerSess.rows.length > 0) {
+            const sess = ownerSess.rows[0];
+            const lastActive = sess.last_active ? new Date(sess.last_active).getTime() : Date.now();
             if (Date.now() - lastActive > IDLE_TIMEOUT_MS) {
-                await pool.query(
-                    'UPDATE store_admin_credentials SET active_session_token = NULL WHERE store_id = $1',
-                    [storeIntId]
-                );
+                await pool.query('DELETE FROM owner_sessions WHERE id = $1', [sess.id]);
                 return res.status(401).json({ success: false, error: 'Session expired due to inactivity. Please login again.' });
             }
             // Sliding window — every valid request refreshes the idle clock.
-            await pool.query(
-                'UPDATE store_admin_credentials SET session_last_active = NOW() WHERE store_id = $1',
-                [storeIntId]
-            );
+            await pool.query('UPDATE owner_sessions SET last_active = NOW() WHERE id = $1', [sess.id]);
             req.adminId = `store-admin:${storeId}`;
             req.storeAdmin = {
                 store_id: storeId,
-                branch_id: cred.branch_id || null,
+                branch_id: sess.branch_id || null,
                 role: 'owner',
                 permissions: null,   // null = full access
             };

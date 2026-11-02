@@ -118,15 +118,24 @@ const StoreAdminSessionController = {
                 return res.status(401).json({ success: false, error: 'Invalid password' });
             }
 
-            // Multiple sessions allowed — each browser tab/device gets
-            // its own session token. The old single-session restriction
-            // was too strict for real-world use where staff may be logged
-            // in from multiple devices simultaneously.
-
+            // Owner sessions: each login gets its own row in owner_sessions so
+            // the owner can be logged in from multiple devices simultaneously.
+            // Keep last 5 sessions per store; older ones are trimmed.
             const sessionToken = crypto.randomBytes(32).toString('hex');
             await pool.query(
-                'UPDATE store_admin_credentials SET active_session_token = $1, session_last_active = NOW() WHERE store_id = $2',
-                [sessionToken, store.id]
+                `INSERT INTO owner_sessions (store_id, token, last_active) VALUES ($1, $2, NOW())`,
+                [store.id, sessionToken]
+            );
+
+            // Trim old owner sessions (keep last 5)
+            await pool.query(
+                `DELETE FROM owner_sessions
+                 WHERE store_id = $1
+                   AND id NOT IN (
+                       SELECT id FROM owner_sessions WHERE store_id = $1
+                       ORDER BY created_at DESC LIMIT 5
+                   )`,
+                [store.id]
             );
 
             await logActivity('store_admin_login_success', req, true, subdomain);
@@ -159,11 +168,10 @@ const StoreAdminSessionController = {
                 return res.status(400).json({ success: false, error: 'Store ID and session token are required' });
             }
 
-            // Only clear the session if this token is actually the active
-            // one — otherwise a stale/already-logged-out client couldn't
-            // accidentally kick out someone else's newer session.
+            // Delete only this specific session token — other owner sessions
+            // on other devices remain unaffected.
             await pool.query(
-                'UPDATE store_admin_credentials SET active_session_token = NULL WHERE store_id = $1 AND active_session_token = $2',
+                'DELETE FROM owner_sessions WHERE store_id = $1 AND token = $2',
                 [storeId, token]
             );
 

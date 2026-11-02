@@ -1,4 +1,5 @@
 const pool = require('../../config/database');
+const { checkVersion } = require('../../middleware/optimisticLock');
 
 // Derive real-time status from DB fields
 function computeStatus(row) {
@@ -146,6 +147,9 @@ class CouponsController {
                 [id, storeId]
             );
             if (!existing.rows.length) return res.status(404).json({ success: false, error: 'Not found' });
+
+            const conflict = await checkVersion(pool, 'discount_codes', id, req);
+            if (conflict) return res.status(409).json(conflict);
 
             const r = existing.rows[0];
             const result = await pool.query(`

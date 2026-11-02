@@ -576,6 +576,18 @@ const runColumnMigrations = async () => {
         // password_encrypted column. Both exist during rollout; login accepts either.
         `ALTER TABLE store_admin_credentials ADD COLUMN IF NOT EXISTS password_hash TEXT`,
         `CREATE INDEX IF NOT EXISTS idx_store_admin_creds_has_hash ON store_admin_credentials (store_id) WHERE password_hash IS NOT NULL`,
+        // Multi-session owner login: replace single active_session_token with a
+        // dedicated sessions table so owner can be logged in from multiple devices
+        // simultaneously (same pattern as service.staff_sessions for staff).
+        `CREATE TABLE IF NOT EXISTS owner_sessions (
+            id          SERIAL PRIMARY KEY,
+            store_id    INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+            token       TEXT    NOT NULL UNIQUE,
+            last_active TIMESTAMP NOT NULL DEFAULT NOW(),
+            created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_owner_sessions_store ON owner_sessions(store_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_owner_sessions_token ON owner_sessions(token)`,
     ];
 
     let applied = 0;

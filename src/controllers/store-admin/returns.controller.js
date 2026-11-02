@@ -1,5 +1,6 @@
 const pool = require('../../config/database');
 const ImageService = require('../../services/imageService');
+const { checkVersion } = require('../../middleware/optimisticLock');
 
 // ✅ Store Admin's side of returns — the queue, detail view, and the full
 // status progression: requested -> approved/rejected -> parcel_received ->
@@ -95,6 +96,9 @@ const StoreAdminReturnsController = {
                 return res.status(400).json({ success: false, error: 'Courier name and tracking number are required for a merchant-arranged pickup' });
             }
 
+            const conflict = await checkVersion(pool, 'order_returns', returnId, req);
+            if (conflict) return res.status(409).json(conflict);
+
             const result = await pool.query(
                 `UPDATE order_returns
                  SET status = 'approved', approved_at = NOW(), operator_comment = $1,
@@ -129,6 +133,9 @@ const StoreAdminReturnsController = {
             if (existing.rows[0].status !== 'requested') {
                 return res.status(400).json({ success: false, error: 'Only a pending return can be rejected' });
             }
+
+            const rejectConflict = await checkVersion(pool, 'order_returns', returnId, req);
+            if (rejectConflict) return res.status(409).json(rejectConflict);
 
             const result = await pool.query(
                 `UPDATE order_returns SET status = 'rejected', rejected_at = NOW(), reject_reason = $1, updated_at = NOW()
@@ -171,6 +178,9 @@ const StoreAdminReturnsController = {
                     error: `Can't move to "${status}" from "${current}" — steps must happen in order`,
                 });
             }
+
+            const statusConflict = await checkVersion(pool, 'order_returns', returnId, req);
+            if (statusConflict) return res.status(409).json(statusConflict);
 
             const timestampColumn = {
                 parcel_received: 'parcel_received_at',
