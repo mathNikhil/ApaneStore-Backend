@@ -134,6 +134,7 @@ class StoreController {
                 status,
                 lastBuilderStep,
                 storeType,
+                navTabs,
             } = req.body;
 
             // 1. Check if store exists
@@ -242,6 +243,7 @@ class StoreController {
                     brandColors: brandColors !== undefined ? brandColors : existingBrand.brandColors,
                     fonts: fonts !== undefined ? fonts : existingBrand.fonts,
                     baseFontSize: baseFontSize !== undefined ? baseFontSize : existingBrand.baseFontSize,
+                    navTabs: navTabs !== undefined ? navTabs : existingBrand.navTabs,
                 },
                 products: {
                     categories: categories !== undefined ? categories : existingProducts.categories,
