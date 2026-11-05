@@ -106,6 +106,18 @@ router.post(
     ImageController.uploadImage
 );
 
+// ==================== NAV TAB ICONS (STEP 1 store builder) ====================
+// reference_id = tab id (home / cart / orders / profile or custom)
+// URL stored in brand.navTabs[].customIcon in the config blob
+router.post(
+    '/:tenantId/:storeId/images/nav-icon',
+    uploadSingle('image'),
+    handleMulterError,
+    (req, res, next) => { req.imageType = 'NAV_ICON'; next(); },
+    validateSingleImage,
+    ImageController.uploadImage
+);
+
 // ==================== PRODUCT SPECIFIC ROUTES ====================
 router.get('/products/:productId/images', ImageController.getProductImages);
 
