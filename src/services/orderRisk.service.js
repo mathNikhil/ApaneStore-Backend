@@ -151,8 +151,10 @@ async function getDirectory(pool) {
         if (r.places) e.places.push(...r.places.split('|').filter(Boolean));
         map.set(key, e);
     }
-    cache = { dir: { size: map.size, get: (p) => map.get(p) }, loadedAt: Date.now() };
-    return cache.dir;
+    const dir = { size: map.size, get: (p) => map.get(p) };
+    // Never cache an empty directory: right after the first load the next order must see the data.
+    if (map.size) cache = { dir, loadedAt: Date.now() };
+    return dir;
 }
 const clearDirectoryCache = () => { cache = { dir: null, loadedAt: 0 }; };
 
