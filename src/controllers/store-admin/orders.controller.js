@@ -159,6 +159,24 @@ class StoreAdminOrdersController {
 
             const oldStatus = checkResult.rows[0].status;
 
+            // Risk review guard — OFF unless RISK_GUARD=on in .env (turn it on only after the
+            // store-admin UI can send overrideRisk:true). Fails open: if the risk columns do not
+            // exist yet (migration not run) status updates keep working.
+            let overrideSuffix = '';
+            if (process.env.RISK_GUARD === 'on') {
+                try {
+                    const riskRow = (await pool.query('SELECT risk_status, risk_flags FROM orders WHERE id = $1', [orderId])).rows[0];
+                    if (riskRow && riskRow.risk_status === 'flagged') {
+                        if (oldStatus === 'pending' && status !== 'cancelled' && req.body.overrideRisk !== true) {
+                            return res.status(422).json({ success: false, code: 'RISK_REVIEW_REQUIRED', error: 'This order has risk flags. Review them, then confirm anyway.', flags: riskRow.risk_flags });
+                        }
+                        if (req.body.overrideRisk === true) overrideSuffix = ' [confirmed despite risk flags]';
+                    }
+                } catch (riskErr) {
+                    logger.warn('Risk guard skipped: ' + riskErr.message);
+                }
+            }
+
             // Optimistic locking — reject if someone else saved a change after
             // the client loaded this order (client sends X-Resource-Version header).
             const conflict = await checkVersion(pool, 'orders', orderId, req);
@@ -183,7 +201,7 @@ class StoreAdminOrdersController {
             await pool.query(
                 `INSERT INTO order_status_history (order_id, status, changed_by, notes) 
                  VALUES ($1, $2, $3, $4)`,
-                [orderId, status, adminId, note || `Status changed from ${oldStatus} to ${status}`]
+                [orderId, status, adminId, (note || `Status changed from ${oldStatus} to ${status}`) + overrideSuffix]
             );
 
             logger.info(`✅ Order ${orderId} status updated from ${oldStatus} to ${status}`);

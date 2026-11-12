@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const logger = require('../config/logger');
+const { runRiskCheckAndSave } = require('../services/orderRisk.service');
 
 // ✅ The centerpiece of making the storefront real — until now, placing an
 // order only updated local browser state and never touched the database.
@@ -246,6 +247,9 @@ const CustomerOrderController = {
                  VALUES ($1, 'pending', $2, 'Order placed by customer')`,
                 [order.id, phone]
             );
+
+            // Tag-only fake-order check (delivery orders). Never throws, never blocks the order.
+            await runRiskCheckAndSave(pool, order, storeConfig, deliveryAddress);
 
             // ── Service bookings: lock the slots so no other customer can take them ──
             // Each cart item for a service store carries selectedSlots: [{date, startTime, staffName}]
