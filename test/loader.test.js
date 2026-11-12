@@ -51,3 +51,34 @@ describe('fetchAll resilience', () => {
         expect(f2.calls()).toBeLessThanOrEqual(1); // nothing (or at most one empty probe) refetched
     });
 });
+
+describe('NA state rows and CSV reading', () => {
+    const { buildRows, parseCsv } = require('../scripts/loadPincodeDirectory');
+    const rec = (pincode, statename, circlename, officename = 'X B.O', district = 'D') => ({ pincode, statename, circlename, officename, district });
+
+    test('pincode that only exists with state NA gets its state from neighbouring pincodes in the same circle', () => {
+        const { rows, inferred } = buildRows([
+            rec('523001', 'ANDHRA PRADESH', 'Andhra Pradesh Circle'),
+            rec('523002', 'ANDHRA PRADESH', 'Andhra Pradesh Circle'),
+            rec('523261', 'NA', 'Andhra Pradesh Circle', 'Kolalapudi B.O', 'NA'),
+        ]);
+        expect(rows.has('523261|Andhra Pradesh')).toBe(true);
+        expect(inferred.has('523261')).toBe(true);
+        expect([...rows.get('523261|Andhra Pradesh')]).toEqual(['kolalapudi b o']); // district "NA" is not stored as a place
+    });
+    test('NA row on a pincode that already has a real state adds nothing', () => {
+        const { rows, inferred } = buildRows([rec('560001', 'KARNATAKA', 'Karnataka Circle'), rec('560001', 'NA', 'Karnataka Circle')]);
+        expect([...rows.keys()]).toEqual(['560001|Karnataka']);
+        expect(inferred.size).toBe(0);
+    });
+    test('no neighbours: falls back to the circle\'s main states only', () => {
+        const many = (st, n) => Array.from({ length: n }, (_, i) => rec(String(400000 + i), st, 'Maharashtra Circle'));
+        const { rows } = buildRows([...many('MAHARASHTRA', 30), ...many('GOA', 25), rec('999991', 'NA', 'Maharashtra Circle'), rec('888888', 'DELHI', 'Maharashtra Circle')]);
+        const keys = [...rows.keys()].filter((k) => k.startsWith('999991|')).sort();
+        expect(keys).toEqual(['999991|Goa', '999991|Maharashtra']); // Delhi (1 office) is noise, not a main state
+    });
+    test('CSV parser handles quotes, commas inside quotes, CRLF and blank lines', () => {
+        const rows = parseCsv('a,b,c\r\n"x, y",2,"he said ""hi"""\r\n\r\n3,4,5\r\n');
+        expect(rows).toEqual([['a', 'b', 'c'], ['x, y', '2', 'he said "hi"'], ['3', '4', '5']]);
+    });
+});
