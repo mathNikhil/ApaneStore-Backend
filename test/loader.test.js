@@ -17,3 +17,37 @@ test('builds rows from the real API sample and maps odd state spellings', () => 
     expect([...rows.get('504299|Telangana')].sort()).toEqual(['kukuda b o', 'kumuram bheem asifabad', 'papanpet b o']);
     expect([...unmapped.keys()]).toEqual(['MARS']);
 });
+
+describe('fetchAll resilience', () => {
+    const fs = require('fs'); const os = require('os'); const path = require('path');
+    const { fetchAll } = require('../scripts/loadPincodeDirectory');
+    const rec = (i) => ({ pincode: String(100000 + i), statename: 'DELHI', district: 'D', officename: `O${i}` });
+    const mkFetch = (total, failFirst = 0, hangFirst = 0) => {
+        let calls = 0, fails = failFirst, hangs = hangFirst;
+        const f = async (url, opts) => {
+            calls++;
+            if (hangs > 0) { hangs--; return new Promise((_, rej) => opts.signal.addEventListener('abort', () => rej(new Error('timeout')))); }
+            if (fails > 0) { fails--; throw new Error('network down'); }
+            const q = new URL(url).searchParams; const off = +q.get('offset'), lim = +q.get('limit');
+            const records = []; for (let i = off; i < Math.min(off + lim, total); i++) records.push(rec(i));
+            return { json: async () => ({ total, records }) };
+        };
+        f.calls = () => calls; return f;
+    };
+    const tmp = () => path.join(os.tmpdir(), `pin-ck-${Date.now()}-${Math.random()}.ndjson`);
+
+    test('retries transient failures and collects everything', async () => {
+        const ck = tmp(); const f = mkFetch(2500, 2);
+        const all = await fetchAll('k', { fetchImpl: f, checkpoint: ck, page: 1000, log: () => {}, delayMs: 0 });
+        expect(all).toHaveLength(2500);
+    });
+    test('resumes from the checkpoint instead of starting over', async () => {
+        const ck = tmp();
+        await fetchAll('k', { fetchImpl: mkFetch(2500), checkpoint: ck, page: 1000, log: () => {}, delayMs: 0 });
+        fs.appendFileSync(ck, '{"torn":'); // simulate a crash mid-write
+        const f2 = mkFetch(2500);
+        const all = await fetchAll('k', { fetchImpl: f2, checkpoint: ck, page: 1000, log: () => {}, delayMs: 0 });
+        expect(all).toHaveLength(2500);
+        expect(f2.calls()).toBeLessThanOrEqual(1); // nothing (or at most one empty probe) refetched
+    });
+});
