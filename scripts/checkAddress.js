@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Dry-run the order risk check against the live pincode table. Writes NOTHING to the database.
 //   node scripts/checkAddress.js --state Delhi --pincode 462001 --city UP --name asdf --phone 9999999999 --address "home"
-// Omitted fields default to a clean Delhi address, so you can change one thing at a time.
+// Omitted fields default to a clean Delhi COD order, so you can change one thing at a time.
+// Extra options: --payment cod|upi   --email x@mailinator.com   --recent 2 (pretend the customer already has 2 COD orders in 24h)
 require('dotenv').config();
 const { Pool } = require('pg');
 const { evaluateOrderRisk, getDirectory } = require('../src/services/orderRisk.service');
@@ -24,8 +25,13 @@ const arg = (name, dflt) => { const i = process.argv.indexOf(`--${name}`); retur
         };
         console.log(`pincode directory: ${directory.size} pincodes loaded`);
         console.log('checking:', JSON.stringify(address));
-        const res = evaluateOrderRisk({ address, orderType: arg('type', 'delivery'), directory, zones: [] });
-        console.log(`\nresult: ${res.status}${res.reason ? ` (${res.reason})` : ''}`);
+        const recent = Number(arg('recent', 0)) || 0;
+        const res = evaluateOrderRisk({
+            address, customerName: address.recipientName, customerPhone: address.recipientMobile, customerEmail: arg('email', undefined),
+            paymentMethod: arg('payment', 'cod'), orderType: arg('type', 'delivery'), directory, zones: [],
+            recentOrders: Array.from({ length: recent }, () => ({ payment_method: 'cod' })),
+        });
+        console.log(`\nresult: ${res.status}${res.reason ? ` (${res.reason})` : ''}   risk score: ${res.riskScore}/100   action: ${res.recommendedAction}`);
         for (const f of res.flags) console.log(`  ${f.severity.padEnd(6)} ${f.code.padEnd(24)} ${f.message}`);
         if (!res.flags.length && res.status === 'passed') console.log('  no issues found');
     } finally { await pool.end(); }

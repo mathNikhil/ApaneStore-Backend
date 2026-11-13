@@ -1,4 +1,4 @@
-const { evaluateOrderRisk, nameIsJunk, phoneIsInvalid } = require('../src/services/orderRisk.service');
+const { evaluateOrderRisk, evaluateCODOrderRisk, isDisposableEmail, nameIsJunk, phoneIsInvalid } = require('../src/services/orderRisk.service');
 
 const mk = (rows) => { const m = new Map(); for (const [p, st, places] of rows) m.set(p, { states: new Set([st]), places }); return { size: m.size, get: (p) => m.get(p) }; };
 const dir = mk([
@@ -103,4 +103,81 @@ describe('minimum lengths (rules v2)', () => {
     test.each([['Om', true], ['Jo', true], ['Ram', false], ['Om Sharma', false], ['Vijendra', false], ['राम', false], ['ओम', true]])('name "%s" too short = %s', (n, short) =>
         expect(codes(run({ recipientName: n }))).toEqual(short ? ['name_too_short'] : []));
     test('junk name is junk, not also too short', () => { const c = codes(run({ recipientName: 'x' })); expect(c).toContain('name_junk'); expect(c).not.toContain('name_too_short'); });
+});
+
+describe('COD-only rules (v3): no number, disposable email, order velocity, score', () => {
+    const NOW = '2026-11-13T10:00:00Z';
+    const hoursAgo = (h, over = {}) => ({ order_id: 'P' + h, payment_method: 'cod', created_at: new Date(Date.parse(NOW) - h * 3600e3).toISOString(), ...over });
+    const cod = (over = {}, extra = {}) => evaluateOrderRisk({ address: { ...good, ...over }, customerPhone: '9812345678', paymentMethod: 'cod', orderType: 'delivery', zones: [], directory: dir, now: NOW, ...extra });
+
+    test('address with no digit is flagged on COD only', () => {
+        expect(codes(cod({ addressLine1: 'Near Shiv Mandir Gandhi Nagar', addressLine2: '' }))).toContain('address_no_number');
+        expect(codes(cod({ addressLine1: 'Near Shiv Mandir Gandhi Nagar', addressLine2: '' }, { paymentMethod: 'upi' }))).not.toContain('address_no_number');
+        expect(codes(cod({ addressLine1: 'Flat 12 Shiv Mandir Road', addressLine2: '' }))).not.toContain('address_no_number');
+    });
+    test('a short digit-less address gets one address flag, not two', () => {
+        const c = codes(cod({ addressLine1: 'Green Park', addressLine2: '' }));
+        expect(c.filter((x) => x.startsWith('address_'))).toHaveLength(1);
+    });
+    test('18 characters is the minimum for the house/street part', () => {
+        expect(codes(cod({ addressLine1: 'Flat 12 Green Park', addressLine2: '' }))).toEqual([]);          // exactly 18
+        expect(codes(cod({ addressLine1: 'Flat 12 Green Prk', addressLine2: '' }))).toContain('address_too_short'); // 17
+    });
+    test('"admin" and other dummy names are junk', () => expect(nameIsJunk('admin')).toBe(true));
+
+    test.each(['a@tempmail.com', 'a@mailinator.com', 'a@10minutemail.com', 'a@guerrillamail.com', 'a@yopmail.com', 'a@throwawaymail.com', 'A@MAILINATOR.COM', 'a@x.mailinator.com'])('disposable %s', (e) => expect(isDisposableEmail(e)).toBeTruthy());
+    test.each(['a@gmail.com', 'a@outlook.com', 'rahul@mycompany.in', 'not-an-email', '', undefined, 'a@notmailinator.com'])('not disposable %s', (e) => expect(isDisposableEmail(e)).toBeFalsy());
+    test('disposable email flagged on COD, ignored on prepaid or when missing', () => {
+        expect(codes(cod({}, { customerEmail: 'x@mailinator.com' }))).toContain('email_disposable');
+        expect(codes(cod({}, { customerEmail: 'x@mailinator.com', paymentMethod: 'upi' }))).not.toContain('email_disposable');
+        expect(codes(cod({}, { customerEmail: undefined }))).not.toContain('email_disposable');
+    });
+
+    test('3rd COD order in 24h is flagged High with the count in the message', () => {
+        const r = cod({}, { recentOrders: [hoursAgo(2), hoursAgo(20)] });
+        const f = r.flags.find((x) => x.code === 'order_velocity');
+        expect(f.severity).toBe('High'); expect(f.message).toBe('Customer placed 3 COD orders in 24 hours');
+    });
+    test('one earlier COD order is fine; old, prepaid and same-order entries do not count', () => {
+        expect(codes(cod({}, { recentOrders: [hoursAgo(2)] }))).not.toContain('order_velocity');
+        expect(codes(cod({}, { recentOrders: [hoursAgo(2), hoursAgo(30)] }))).not.toContain('order_velocity');          // 30h ago is outside the window
+        expect(codes(cod({}, { recentOrders: [hoursAgo(2), hoursAgo(3, { payment_method: 'upi' })] }))).not.toContain('order_velocity');
+        expect(codes(cod({}, { orderId: 'P2', recentOrders: [hoursAgo(2), hoursAgo(3)] }))).not.toContain('order_velocity'); // P2 is the order itself
+    });
+    test('velocity is ignored for prepaid orders', () => expect(codes(cod({}, { paymentMethod: 'upi', recentOrders: [hoursAgo(1), hoursAgo(2), hoursAgo(3)] }))).not.toContain('order_velocity'));
+
+    test('riskScore: High 40, Medium 20, capped at 100; action follows the status', () => {
+        expect(cod({}).riskScore).toBe(0); expect(cod({}).recommendedAction).toBe('PROCEED');
+        const one = cod({ recipientName: 'asdf' }); expect(one.riskScore).toBe(20); expect(one.recommendedAction).toBe('HOLD_FOR_VERIFICATION');
+        expect(cod({ pincode: '999999', recipientMobile: '9999999999', recipientName: 'asdf', addressLine1: 'x' }).riskScore).toBe(100);
+    });
+});
+
+describe('evaluateCODOrderRisk (seller-facing wrapper)', () => {
+    const order = (over = {}) => ({ orderId: 'O1', paymentMethod: 'COD', customerName: 'Rahul Sharma', customerEmail: 'rahul@gmail.com', customerPhone: '9812345678', shippingAddress: 'Flat 12, Green Park Apartments, near City Mall', createdAt: '2026-11-13T10:00:00Z', ...over });
+
+    test('valid COD order proceeds with the exact output shape', () => {
+        expect(evaluateCODOrderRisk(order(), [])).toEqual({ isFlagged: false, riskScore: 0, flagReasons: [], flags: [], recommendedAction: 'PROCEED' });
+    });
+    test('fake COD order: everything wrong at once, readable reasons for the dashboard', () => {
+        const r = evaluateCODOrderRisk(order({ customerName: 'test123', customerEmail: 'x@yopmail.com', customerPhone: '1234567890', shippingAddress: 'home' }),
+            [{ orderId: 'A', paymentMethod: 'COD', createdAt: '2026-11-13T08:00:00Z' }, { orderId: 'B', paymentMethod: 'COD', createdAt: '2026-11-12T23:00:00Z' }]);
+        expect(r.isFlagged).toBe(true); expect(r.recommendedAction).toBe('HOLD_FOR_VERIFICATION'); expect(r.riskScore).toBeGreaterThan(80);
+        expect(r.flagReasons).toEqual(expect.arrayContaining(['Customer placed 3 COD orders in 24 hours']));
+        expect(r.flagReasons.some((m) => /disposable/i.test(m))).toBe(true);
+        expect(r.flagReasons.some((m) => /looks like test/i.test(m))).toBe(true);
+        expect(r.flagReasons.every((m) => typeof m === 'string' && m.length > 10)).toBe(true);
+    });
+    test('prepaid orders are never evaluated', () => {
+        expect(evaluateCODOrderRisk(order({ paymentMethod: 'UPI', customerName: 'test', shippingAddress: 'x' }), [])).toMatchObject({ isFlagged: false, riskScore: 0, recommendedAction: 'PROCEED' });
+    });
+    test('a string address skips pincode/state/city checks instead of failing them', () => {
+        const r = evaluateCODOrderRisk(order({ shippingAddress: 'Flat 12, Green Park Apartments' }), []);
+        expect(r.isFlagged).toBe(false);
+    });
+    test('an address object with a directory also gets the geography checks', () => {
+        const r = evaluateCODOrderRisk(order({ shippingAddress: { ...good, city: 'UP', pincode: '462001' } }), [], { directory: dir });
+        expect(r.isFlagged).toBe(true); expect(r.flags.map((f) => f.code)).toEqual(expect.arrayContaining(['state_pincode_mismatch', 'city_state_mismatch']));
+    });
+    test('missing input never throws', () => { expect(() => evaluateCODOrderRisk()).not.toThrow(); expect(() => evaluateCODOrderRisk({ paymentMethod: 'COD' })).not.toThrow(); });
 });
