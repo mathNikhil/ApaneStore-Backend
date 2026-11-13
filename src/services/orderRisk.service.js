@@ -76,7 +76,19 @@ function evaluateOrderRisk({ address, customerName, customerPhone, orderType, zo
         add('pincode_invalid', 'pincode', 'High', 'Pincode must be 6 digits and cannot start with 0');
     } else {
         entry = directory.get(pincode) || null;
-        if (!entry) add('pincode_invalid', 'pincode', 'High', 'Pincode not found in the India Post directory');
+        if (!entry) {
+            // Unknown pincode: the first two digits still tell us which state(s) the number range belongs to.
+            const hint = typeof directory.prefixHint === 'function' ? directory.prefixHint(pincode) : null;
+            const hintText = hint && hint.size ? ` (${pincode.slice(0, 2)}xxxx pincodes belong to ${[...hint].join(' / ')})` : '';
+            add('pincode_invalid', 'pincode', 'High', `Pincode ${pincode} does not exist in the India Post directory${hintText}`);
+            const sel = canonicalState(address.state);
+            if (hint && hint.size && sel) {
+                const okStates = new Set([sel, ...(STATE_EQUIVALENTS[sel] || [])]);
+                if (![...hint].some((st) => okStates.has(st))) {
+                    add('pincode_range_mismatch', 'pincode', 'High', `Pincode starts with ${pincode.slice(0, 2)}, a ${[...hint].join(' / ')} range, but the address says ${sel}`);
+                }
+            }
+        }
     }
 
     // 2. state
@@ -151,7 +163,20 @@ async function getDirectory(pool) {
         if (r.places) e.places.push(...r.places.split('|').filter(Boolean));
         map.set(key, e);
     }
-    const dir = { size: map.size, get: (p) => map.get(p) };
+    // 2-digit prefix -> states that hold at least 5% of that prefix's pincodes (army post offices, 90+, are skipped)
+    const prefixCounts = new Map();
+    for (const [pin, e] of map) {
+        const a = pin.slice(0, 2);
+        if (Number(a) >= 90) continue;
+        if (!prefixCounts.has(a)) prefixCounts.set(a, new Map());
+        for (const st of e.states) prefixCounts.get(a).set(st, (prefixCounts.get(a).get(st) || 0) + 1);
+    }
+    const prefixStates = new Map();
+    for (const [a, m] of prefixCounts) {
+        const total = [...m.values()].reduce((x, y) => x + y, 0);
+        prefixStates.set(a, new Set([...m.entries()].filter(([, n]) => n / total >= 0.05).map(([st]) => st)));
+    }
+    const dir = { size: map.size, get: (p) => map.get(p), prefixHint: (pin) => prefixStates.get(String(pin).slice(0, 2)) || null };
     // Never cache an empty directory: right after the first load the next order must see the data.
     if (map.size) cache = { dir, loadedAt: Date.now() };
     return dir;

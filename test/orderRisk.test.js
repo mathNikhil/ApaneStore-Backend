@@ -65,3 +65,24 @@ test('dine-in, international and empty directory are never flagged', () => {
     expect(run({ country: 'USA', pincode: '10001' }).status).toBe('not_checked');
     expect(run({}, { directory: { size: 0, get: () => undefined } }).status).toBe('not_checked');
 });
+
+describe('unknown pincode: which state does its number range belong to?', () => {
+    const hints = { 56: ['Karnataka'], 81: ['Bihar', 'Jharkhand'] };
+    const dir2 = { ...dir, prefixHint: (p) => (hints[String(p).slice(0, 2)] ? new Set(hints[String(p).slice(0, 2)]) : null) };
+    const run2 = (over) => evaluateOrderRisk({ address: { ...good, ...over }, customerPhone: '9812345678', orderType: 'delivery', zones: [], directory: dir2 });
+    test('Bihar address with a 56xxxx pincode: invalid AND wrong range, message names Karnataka', () => {
+        const r = run2({ city: 'Patna', state: 'Bihar', pincode: '564446' });
+        expect(codes(r)).toEqual(expect.arrayContaining(['pincode_invalid', 'pincode_range_mismatch']));
+        expect(r.flags.find((f) => f.code === 'pincode_invalid').message).toMatch(/56xxxx pincodes belong to Karnataka/);
+    });
+    test('unknown pincode in the right range is only invalid', () => {
+        const r = run2({ city: 'Bangalore', state: 'Karnataka', pincode: '569999' });
+        expect(codes(r)).toContain('pincode_invalid');
+        expect(codes(r)).not.toContain('pincode_range_mismatch');
+    });
+    test('prefix shared by two states accepts either', () => {
+        expect(codes(run2({ city: 'Ranchi', state: 'Jharkhand', pincode: '819999' }))).not.toContain('pincode_range_mismatch');
+        expect(codes(run2({ city: 'Patna', state: 'Bihar', pincode: '819999' }))).not.toContain('pincode_range_mismatch');
+    });
+    test('no hint available: still just invalid', () => expect(codes(run2({ pincode: '999999' }))).toEqual(expect.arrayContaining(['pincode_invalid'])));
+});
