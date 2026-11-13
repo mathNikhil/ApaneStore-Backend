@@ -86,3 +86,21 @@ describe('unknown pincode: which state does its number range belong to?', () => 
     });
     test('no hint available: still just invalid', () => expect(codes(run2({ pincode: '999999' }))).toEqual(expect.arrayContaining(['pincode_invalid'])));
 });
+
+describe('minimum lengths (rules v2)', () => {
+    test('two-word address like "c-34333 pitampura" is too short, not "incomplete"', () => {
+        const c = codes(run({ addressLine1: 'c-34333 pitampura', addressLine2: '' }));
+        expect(c).toContain('address_too_short'); expect(c).not.toContain('address_incomplete');
+    });
+    test('address under 15 characters is too short even with 3 words', () => expect(codes(run({ addressLine1: 'H-4, Sector 5', addressLine2: '' }))).toContain('address_too_short'));
+    test('normal addresses pass', () => {
+        expect(codes(run({ addressLine1: 'Flat 12 Green Park', addressLine2: '' }))).toEqual([]);
+        expect(codes(run({ addressLine1: 'H-4, Sector 5', addressLine2: 'Rohini' }))).toEqual([]);
+    });
+    test('a flag never doubles up: junk address is incomplete only', () => {
+        const c = codes(run({ addressLine1: 'home', addressLine2: '' })); expect(c).toContain('address_incomplete'); expect(c).not.toContain('address_too_short');
+    });
+    test.each([['Om', true], ['Jo', true], ['Ram', false], ['Om Sharma', false], ['Vijendra', false], ['राम', false], ['ओम', true]])('name "%s" too short = %s', (n, short) =>
+        expect(codes(run({ recipientName: n }))).toEqual(short ? ['name_too_short'] : []));
+    test('junk name is junk, not also too short', () => { const c = codes(run({ recipientName: 'x' })); expect(c).toContain('name_junk'); expect(c).not.toContain('name_too_short'); });
+});

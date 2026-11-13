@@ -3,7 +3,12 @@
 // and swallows every error so a bug here can never cost a tenant a sale.
 const { canonicalState, stateKey, STATE_ABBR, CITY_IS_ALSO_STATE, STATE_EQUIVALENTS, normText, cityVariants } = require('../utils/indiaGeo');
 
-const RULES_VERSION = 1;
+// Minimum lengths. Tune here; each is a Medium flag the operator can wave through.
+const ADDRESS_MIN_CHARS = 15; // house/street part (address line 1 + 2) combined
+const ADDRESS_MIN_WORDS = 3;
+const NAME_MIN_LETTERS = 3;   // letters across the whole name, so "Om Sharma" passes but a lone "Om" does not
+
+const RULES_VERSION = 2;
 const SEV_ORDER = { High: 0, Medium: 1 };
 
 // ── field validators ────────────────────────────────────────────────────────────────────────
@@ -117,7 +122,9 @@ function evaluateOrderRisk({ address, customerName, customerPhone, orderType, zo
 
     // 4. name
     const name = address.recipientName || customerName;
+    const nameLetters = (String(name || '').match(/[\p{L}\p{M}]/gu) || []).length;
     if (nameIsJunk(name)) add('name_junk', 'name', 'Medium', `Name "${name || ''}" looks like test or random text`);
+    else if (nameLetters < NAME_MIN_LETTERS) add('name_too_short', 'name', 'Medium', `Name "${name}" is too short (needs at least ${NAME_MIN_LETTERS} letters)`);
 
     // 5. phone
     const phone = address.recipientMobile || customerPhone;
@@ -126,8 +133,11 @@ function evaluateOrderRisk({ address, customerName, customerPhone, orderType, zo
     // 6. address
     const line = `${address.addressLine1 || ''} ${address.addressLine2 || ''}`.trim();
     const lineNorm = normText(line);
-    if (line.length < 10 || line.split(/\s+/).length < 2 || lineNorm === cityNorm || isJunkText(line)) {
-        add('address_incomplete', 'address', 'Medium', 'Address is too short or has no usable street/area detail');
+    const words = line.split(/\s+/).filter(Boolean).length;
+    if (line.length < 10 || words < 2 || lineNorm === cityNorm || isJunkText(line)) {
+        add('address_incomplete', 'address', 'Medium', 'Address has no usable street/area detail');
+    } else if (line.length < ADDRESS_MIN_CHARS || words < ADDRESS_MIN_WORDS) {
+        add('address_too_short', 'address', 'Medium', `Address is very short (${line.length} characters, ${words} words). Real addresses usually have house no., street/block and area`);
     }
 
     // 7. delivery zone (mirrors the storefront's resolveDeliveryZone so client and server agree)
