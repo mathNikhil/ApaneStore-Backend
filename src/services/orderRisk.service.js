@@ -184,4 +184,4 @@ async function runRiskCheckAndSave(pool, order, storeConfig, deliveryAddress) {
     }
 }
 
-module.exports = { evaluateOrderRisk, runRiskCheckAndSave, clearDirectoryCache, nameIsJunk, phoneIsInvalid, RULES_VERSION };
+module.exports = { evaluateOrderRisk, runRiskCheckAndSave, getDirectory, clearDirectoryCache, nameIsJunk, phoneIsInvalid, RULES_VERSION };
