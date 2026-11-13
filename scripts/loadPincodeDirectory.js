@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Loads the All India Pincode Directory (data.gov.in) into pincode_directory.
-//   node scripts/loadPincodeDirectory.js --csv /path/to/5c2f62fe-5afa-4119-a499-fec9d604d5bd.csv   (fast, no API key needed)
+//   node scripts/loadPincodeDirectory.js --csv data/pincode_directory.csv.gz     (fast, no API key; .csv or .csv.gz)
 //   DATA_GOV_API_KEY=xxxx node scripts/loadPincodeDirectory.js                                    (downloads from the API, slow)
 // Key comes from the environment only. Never hardcode it, never commit it.
 // Replaces all source='datagov' rows in one transaction. source='manual' rows are never touched.
 require('dotenv').config();
 const fs = require('fs');
+const zlib = require('zlib');
 const { Pool } = require('pg');
 const { canonicalState, normText } = require('../src/utils/indiaGeo');
 
@@ -85,7 +86,9 @@ function parseCsv(txt) {
     return rows;
 }
 function readCsvRecords(path) {
-    const rows = parseCsv(fs.readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+    const buf = fs.readFileSync(path);
+    const text = (path.endsWith('.gz') ? zlib.gunzipSync(buf) : buf).toString('utf8').replace(/^\uFEFF/, '');
+    const rows = parseCsv(text);
     const header = rows.shift().map((h) => h.trim().toLowerCase());
     for (const need of ['pincode', 'statename', 'district', 'officename', 'circlename']) {
         if (!header.includes(need)) throw new Error(`CSV is missing the "${need}" column (found: ${header.join(', ')})`);
