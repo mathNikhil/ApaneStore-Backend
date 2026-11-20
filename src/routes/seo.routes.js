@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const fs = require('fs');
 const path = require('path');
+const { buildProductPath, parseProductIdFromPath } = require('../utils/productSlug');
 
 const BOT_AGENTS = ['googlebot', 'bingbot', 'facebookexternalhit', 'twitterbot', 'whatsapp', 'telegrambot', 'linkedinbot', 'slackbot', 'discordbot', 'applebot'];
 
@@ -55,28 +56,65 @@ router.get('/meta', async (req, res) => {
         const seoDescription = sanitize(profile.seoDescription || profile.aboutUs?.substring(0, 160) || `Shop at ${storeName}`);
         const seoKeywords = sanitize(profile.seoKeywords || '');
         const ogImage = brand.logoUrl || profile.logoUrl || 'https://aapnaestore.com/og-default.png';
-        const url = `https://${host}`;
+        let url = `https://${host}`;
+
+        // Product deep link? The Worker/nginx should pass the original path as
+        // ?path=/product/paneer-puff-123 (or an x-forwarded-uri header).
+        const reqPath = String(req.query.path || req.headers['x-forwarded-uri'] || '').split('?')[0];
+        const productId = parseProductIdFromPath(reqPath);
+        let product = null;
+        if (productId) {
+            for (const cat of (config.products?.categories || [])) {
+                product = (cat.products || []).find(p => String(p.id) === String(productId) && !p._archived);
+                if (product) break;
+            }
+        }
 
         // Read storefront index.html
         const indexPath = path.join('/home/ubuntu/apps/ApaneStore-Storefront/dist/index.html');
         let html = fs.readFileSync(indexPath, 'utf8');
 
         // Inject meta tags
+        let pageTitle = seoTitle, pageDesc = seoDescription, pageImage = ogImage, ogType = 'website', jsonLd = '';
+        if (product) {
+            const firstImg = (product.images || []).map(i => typeof i === 'string' ? i : (i?.url || i?.preview)).find(Boolean);
+            const prices = (product.variations || []).flatMap(v => (v.sizes || []).map(sz => parseFloat(sz.price))).filter(n => !isNaN(n));
+            const low = prices.length ? Math.min(...prices) : null;
+            pageTitle = sanitize(`${product.name} - ${storeName}`);
+            pageDesc = sanitize(product.description || `Buy ${product.name} from ${storeName}${low !== null ? ` starting at ₹${low}` : ''}.`).substring(0, 160);
+            pageImage = sanitize(firstImg || ogImage);
+            ogType = 'product';
+            url = `https://${host}${buildProductPath(product)}`;
+            const ld = {
+                '@context': 'https://schema.org',
+                '@type': 'Product',
+                name: product.name,
+                description: product.description || undefined,
+                image: firstImg ? [firstImg] : undefined,
+                offers: low !== null ? {
+                    '@type': 'Offer', priceCurrency: 'INR', price: String(low), url,
+                    availability: 'https://schema.org/InStock',
+                } : undefined,
+            };
+            // '<' escaped so tenant text can't close the script tag
+            jsonLd = `\n    <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`;
+        }
+
         const metaTags = `
-    <title>${seoTitle}</title>
-    <meta name="description" content="${seoDescription}">
+    <title>${pageTitle}</title>
+    <meta name="description" content="${pageDesc}">
     <meta name="keywords" content="${seoKeywords}">
-    <meta property="og:title" content="${seoTitle}">
-    <meta property="og:description" content="${seoDescription}">
-    <meta property="og:image" content="${ogImage}">
+    <meta property="og:title" content="${pageTitle}">
+    <meta property="og:description" content="${pageDesc}">
+    <meta property="og:image" content="${pageImage}">
     <meta property="og:url" content="${url}">
-    <meta property="og:type" content="website">
+    <meta property="og:type" content="${ogType}">
     <meta property="og:site_name" content="${storeName}">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="${seoTitle}">
-    <meta name="twitter:description" content="${seoDescription}">
-    <meta name="twitter:image" content="${ogImage}">
-    <link rel="canonical" href="${url}">`;
+    <meta name="twitter:title" content="${pageTitle}">
+    <meta name="twitter:description" content="${pageDesc}">
+    <meta name="twitter:image" content="${pageImage}">
+    <link rel="canonical" href="${url}">${jsonLd}`;
 
         html = html.replace(/<title>[^<]*<\/title>/, metaTags);
 
@@ -142,7 +180,7 @@ router.get('/sitemap', async (req, res) => {
         categories.forEach(cat => {
             (cat.products || []).forEach(prod => {
                 if (!prod._archived) {
-                    urls.push(`  <url><loc>${baseUrl}?product=${prod.id}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`);
+                    urls.push(`  <url><loc>${baseUrl}${buildProductPath(prod)}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`);
                 }
             });
         });
