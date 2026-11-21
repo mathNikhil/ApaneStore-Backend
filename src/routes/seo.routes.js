@@ -126,30 +126,65 @@ router.get('/meta', async (req, res) => {
     }
 });
 
+// ─── Shared helpers for robots.txt / sitemap.xml ────────────────────────────
+const PLATFORM_DOMAIN = 'aapnaestore.com';
+const HOST_RE = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
+const MAX_SITEMAP_URLS = 50000; // sitemap protocol limit per file
+
+const xmlEsc = (v) => String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+// Validated host from ?host= (Worker) or forwarded/host headers. null if junk.
+function cleanHost(req) {
+    const raw = String(req.query.host || req.headers['x-forwarded-host'] || req.headers['host'] || '')
+        .split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+    return HOST_RE.test(raw) ? raw : null;
+}
+
+// Published, non-deleted stores only — same rule the storefront itself uses.
+// Subdomain match is only allowed on our own domain, so bakewala.evil.com
+// can't pull bakewala's sitemap.
+async function findPublishedStore(host) {
+    if (host.endsWith('.' + PLATFORM_DOMAIN)) {
+        const sub = host.slice(0, -(PLATFORM_DOMAIN.length + 1));
+        if (!sub || sub.includes('.')) return null;
+        const r = await pool.query(
+            `SELECT config, store_name, updated_at FROM stores
+             WHERE subdomain = $1 AND status = 'published' AND deleted_at IS NULL LIMIT 1`, [sub]);
+        return r.rows[0] || null;
+    }
+    const clean = host.replace(/^www\./, '');
+    const r = await pool.query(
+        `SELECT s.config, s.store_name, s.updated_at
+         FROM stores s JOIN store_domain_config sdc ON sdc.store_id = s.id
+         WHERE sdc.custom_domain IN ($1, $2) AND sdc.dns_status = 'verified'
+           AND s.status = 'published' AND s.deleted_at IS NULL LIMIT 1`,
+        [clean, `www.${clean}`]);
+    return r.rows[0] || null;
+}
+
+const isoDay = (d) => (d ? new Date(d) : new Date()).toISOString().split('T')[0];
+
+// Absolute https image URLs only (data: / blob: / relative URLs are useless to Google)
+function productImageUrls(prod, max = 3) {
+    return (prod.images || [])
+        .map(i => (typeof i === 'string' ? i : (i && (i.url || i.preview))))
+        .filter(u => typeof u === 'string' && /^https:\/\//i.test(u))
+        .slice(0, max);
+}
+
 // robots.txt per store
 router.get('/robots', async (req, res) => {
     try {
-        const host = req.query.host || req.headers['x-forwarded-host'] || req.headers['host'] || '';
-        const subdomain = host.split('.')[0];
-        
-        // Check if valid store
-        const result = await pool.query(
-            'SELECT subdomain FROM stores WHERE subdomain=$1 LIMIT 1',
-            [subdomain]
-        );
+        const host = cleanHost(req);
+        if (!host || !(await findPublishedStore(host))) return res.status(404).send('Not found');
 
-        if (!result.rows.length) {
-            return res.status(404).send('Not found');
-        }
-
-        const robotsTxt = `User-agent: *
-Allow: /
-
-Sitemap: https://${host}/sitemap.xml`;
-
-        res.setHeader('Content-Type', 'text/plain');
-        res.send(robotsTxt);
-    } catch(e) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.send(`User-agent: *\nAllow: /\n\nSitemap: https://${host}/sitemap.xml\n`);
+    } catch (e) {
+        console.error('robots error:', e.message);
         res.status(500).send('Error');
     }
 });
@@ -157,42 +192,40 @@ Sitemap: https://${host}/sitemap.xml`;
 // sitemap.xml per store
 router.get('/sitemap', async (req, res) => {
     try {
-        const host = req.query.host || req.headers['x-forwarded-host'] || req.headers['host'] || '';
-        const subdomain = host.split('.')[0];
+        const host = cleanHost(req);
+        const store = host ? await findPublishedStore(host) : null;
+        if (!store) return res.status(404).send('Not found');
 
-        const result = await pool.query(
-            'SELECT config, store_name FROM stores WHERE subdomain=$1 LIMIT 1',
-            [subdomain]
-        );
-
-        if (!result.rows.length) return res.status(404).send('Not found');
-
-        const config = result.rows[0].config || {};
-        const categories = config?.products?.categories || [];
         const baseUrl = `https://${host}`;
-        const now = new Date().toISOString().split('T')[0];
+        // Real change date from the store record, not "today" on every request.
+        // Google stops trusting lastmod once it sees it lie, so don't fake it.
+        const storeLastmod = isoDay(store.updated_at);
 
-        let urls = [
-            `  <url><loc>${baseUrl}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>`
-        ];
+        const entries = [`  <url>\n    <loc>${xmlEsc(baseUrl + '/')}</loc>\n    <lastmod>${storeLastmod}</lastmod>\n  </url>`];
+        const seen = new Set();
 
-        // Add category and product URLs
-        categories.forEach(cat => {
-            (cat.products || []).forEach(prod => {
-                if (!prod._archived) {
-                    urls.push(`  <url><loc>${baseUrl}${buildProductPath(prod)}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`);
-                }
-            });
-        });
+        for (const cat of (store.config?.products?.categories || [])) {
+            for (const prod of (cat.products || [])) {
+                if (prod._archived || prod.id === undefined || prod.id === null || !prod.name) continue;
+                if (seen.has(String(prod.id))) continue;          // same product in 2 categories
+                seen.add(String(prod.id));
+                if (entries.length >= MAX_SITEMAP_URLS) break;
 
-        const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.join('\n')}
-</urlset>`;
+                const lastmod = isoDay(prod.updatedAt || prod.updated_at || store.updated_at);
+                const images = productImageUrls(prod)
+                    .map(u => `    <image:image><image:loc>${xmlEsc(u)}</image:loc></image:image>`).join('\n');
+                entries.push(
+                    `  <url>\n    <loc>${xmlEsc(baseUrl + buildProductPath(prod))}</loc>\n    <lastmod>${lastmod}</lastmod>` +
+                    (images ? `\n${images}` : '') + `\n  </url>`
+                );
+            }
+        }
 
-        res.setHeader('Content-Type', 'application/xml');
-        res.send(sitemap);
-    } catch(e) {
+        res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${entries.join('\n')}\n</urlset>`);
+    } catch (e) {
+        console.error('sitemap error:', e.message);
         res.status(500).send('Error');
     }
 });
