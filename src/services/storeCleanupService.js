@@ -2,6 +2,12 @@ const pool = require('../config/database');
 const imageService = require('./imageService');
 const adminSettingsService = require('./adminSettingsService');
 
+// The deletion clock starts when a store was UNPUBLISHED (stores.unpublished_at,
+// maintained by a DB trigger on every status change), not when it was created.
+// Never-published drafts have no unpublished_at, so they fall back to created_at.
+// (alias `s` is required on the stores table in every query that uses this)
+const CLOCK_SQL = `COALESCE(s.unpublished_at, s.created_at)`;
+
 class StoreCleanupService {
     /**
      * ✅ MAIN CLEANUP FUNCTION
@@ -84,16 +90,19 @@ class StoreCleanupService {
      * @returns {Promise<Array>} Array of expired stores
      */
     async findExpiredDraftStores(expiryDays) {
+        const days = parseInt(expiryDays, 10);
+        if (!Number.isFinite(days) || days < 1) return []; // bad setting: delete nothing
+
         const query = `
-            SELECT id, store_id, store_name, tenant_id, created_at, status
-            FROM stores
-            WHERE status = 'draft'
-            AND deleted_at IS NULL
-            AND auto_deleted = false
-            AND created_at < NOW() - INTERVAL '${expiryDays} days'
+            SELECT s.id, s.store_id, s.store_name, s.tenant_id, s.created_at, s.status
+            FROM stores s
+            WHERE s.status = 'draft'
+            AND s.deleted_at IS NULL
+            AND s.auto_deleted = false
+            AND ${CLOCK_SQL} < NOW() - make_interval(days => $1)
         `;
-        
-        const result = await pool.query(query);
+
+        const result = await pool.query(query, [days]);
         return result.rows;
     }
 
@@ -222,9 +231,9 @@ class StoreCleanupService {
     async getStoreExpiryInfo(storeId) {
         try {
             const result = await pool.query(
-                `SELECT id, store_name, status, created_at 
-                 FROM stores 
-                 WHERE id = $1 AND status = 'draft' AND deleted_at IS NULL`,
+                `SELECT s.id, s.store_name, s.status, s.created_at, ${CLOCK_SQL} AS expiry_start
+                 FROM stores s 
+                 WHERE s.id = $1 AND s.status = 'draft' AND s.deleted_at IS NULL`,
                 [storeId]
             );
             
@@ -235,8 +244,8 @@ class StoreCleanupService {
             const store = result.rows[0];
             const expiryDays = await adminSettingsService.getDraftExpiryDays();
             
-            const createdAt = new Date(store.created_at);
-            const expiryDate = new Date(createdAt);
+            const clockStart = new Date(store.expiry_start);
+            const expiryDate = new Date(clockStart);
             expiryDate.setDate(expiryDate.getDate() + expiryDays);
             
             const now = new Date();
@@ -269,10 +278,11 @@ class StoreCleanupService {
     async getStoresWithExpiryInfo(tenantId) {
         try {
             const result = await pool.query(
-                `SELECT id, store_id, store_name, status, created_at 
-                 FROM stores 
-                 WHERE tenant_id = $1 AND deleted_at IS NULL
-                 ORDER BY created_at DESC`,
+                `SELECT s.id, s.store_id, s.store_name, s.status, s.created_at,
+                        ${CLOCK_SQL} AS expiry_start
+                 FROM stores s 
+                 WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+                 ORDER BY s.created_at DESC`,
                 [tenantId]
             );
             
@@ -288,8 +298,9 @@ class StoreCleanupService {
                 };
                 
                 if (store.status === 'draft') {
-                    const createdAt = new Date(store.created_at);
-                    const expiryDate = new Date(createdAt);
+                    // countdown runs from when the store was unpublished
+                    const clockStart = new Date(store.expiry_start);
+                    const expiryDate = new Date(clockStart);
                     expiryDate.setDate(expiryDate.getDate() + expiryDays);
                     
                     const daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
@@ -331,20 +342,20 @@ class StoreCleanupService {
             // Expired draft stores
             const expiredResult = await pool.query(
                 `SELECT COUNT(*) as expired 
-                 FROM stores 
-                 WHERE status = 'draft' 
-                 AND deleted_at IS NULL 
-                 AND created_at < NOW() - INTERVAL '${expiryDays} days'`
+                 FROM stores s
+                 WHERE s.status = 'draft' 
+                 AND s.deleted_at IS NULL 
+                 AND ${CLOCK_SQL} < NOW() - INTERVAL '${parseInt(expiryDays, 10)} days'`
             );
             
             // Expiring soon (within 7 days)
             const expiringResult = await pool.query(
                 `SELECT COUNT(*) as expiring_soon 
-                 FROM stores 
-                 WHERE status = 'draft' 
-                 AND deleted_at IS NULL 
-                 AND created_at > NOW() - INTERVAL '${expiryDays - 7} days'
-                 AND created_at < NOW() - INTERVAL '${expiryDays - 30} days'`
+                 FROM stores s
+                 WHERE s.status = 'draft' 
+                 AND s.deleted_at IS NULL 
+                 AND ${CLOCK_SQL} > NOW() - INTERVAL '${parseInt(expiryDays, 10) - 7} days'
+                 AND ${CLOCK_SQL} < NOW() - INTERVAL '${parseInt(expiryDays, 10) - 30} days'`
             );
             
             // ✅ NEW: Get image storage usage for draft stores
