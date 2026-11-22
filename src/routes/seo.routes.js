@@ -19,106 +19,180 @@ const sanitize = (str = '') => String(str)
     .trim()
     .substring(0, 500);
 
-// Serve meta-injected HTML for bots visiting storefront subdomains
+// ─── Structured data (JSON-LD) builders ─────────────────────────────────────
+// Only claims what is actually on the page. No ratings/reviews (none exist),
+// no availability (live stock is not available here — a hard-coded "InStock"
+// on a sold-out product is a mismatch Google can penalise), no brand (the
+// store name is not necessarily the product's brand).
+const CURRENCY = 'INR';
+const httpsUrl = (u) => (typeof u === 'string' && /^https:\/\//i.test(u.trim()) ? u.trim() : null);
+const clean = (obj) => JSON.parse(JSON.stringify(obj)); // drops undefined
+const ldScript = (obj) =>
+    `\n    <script type="application/ld+json">${JSON.stringify(clean(obj)).replace(/</g, '\\u003c')}</script>`;
+
+function buildStoreJsonLd({ storeName, baseUrl, logo, description, profile }) {
+    const social = profile.socialLinks || {};
+    const sameAs = ['facebook', 'instagram', 'twitter', 'youtube']
+        .map(k => httpsUrl(social[k])).filter(Boolean);
+    return {
+        '@context': 'https://schema.org',
+        '@graph': [
+            {
+                '@type': 'Organization', '@id': `${baseUrl}/#organization`,
+                name: storeName, url: `${baseUrl}/`,
+                logo: httpsUrl(logo) || undefined,
+                description: description || undefined,
+                sameAs: sameAs.length ? sameAs : undefined,
+            },
+            {
+                '@type': 'WebSite', '@id': `${baseUrl}/#website`,
+                name: storeName, url: `${baseUrl}/`,
+                publisher: { '@id': `${baseUrl}/#organization` },
+            },
+        ],
+    };
+}
+
+function buildProductJsonLd({ product, storeName, baseUrl, pageUrl }) {
+    const prices = (product.variations || [])
+        .flatMap(v => (v.sizes || []).map(sz => parseFloat(sz.price)))
+        .filter(n => Number.isFinite(n) && n >= 0);
+    const low = prices.length ? Math.min(...prices) : null;
+    const high = prices.length ? Math.max(...prices) : null;
+    const fmt = (n) => String(Math.round(n * 100) / 100);
+    const seller = { '@type': 'Organization', name: storeName, url: `${baseUrl}/` };
+
+    let offers;
+    if (low !== null && low === high) {
+        offers = { '@type': 'Offer', url: pageUrl, priceCurrency: CURRENCY, price: fmt(low), seller };
+    } else if (low !== null) {
+        offers = { '@type': 'AggregateOffer', url: pageUrl, priceCurrency: CURRENCY,
+                   lowPrice: fmt(low), highPrice: fmt(high), offerCount: prices.length, seller };
+    }
+    const images = productImageUrls(product, 5);
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        '@id': `${pageUrl}#product`,
+        name: product.name,
+        description: product.description ? String(product.description).substring(0, 1000) : undefined,
+        image: images.length ? images : undefined,
+        sku: String(product.id),
+        url: pageUrl,
+        offers,
+    };
+}
+
+// Serve meta-injected HTML for bots visiting storefront subdomains / custom domains
 router.get('/meta', async (req, res) => {
     try {
         const ua = req.headers['user-agent'] || '';
-        const host = req.query.host || req.headers['x-forwarded-host'] || req.headers['host'] || '';
-        const subdomain = host.split('.')[0];
-
+        res.setHeader('Vary', 'User-Agent');
         if (!isBot(ua) && req.query.preview !== '1') {
             return res.status(200).json({ bot: false });
         }
 
-        // Get store data from DB — check subdomain first, then custom domain
-        let result = await pool.query(
-            `SELECT config, store_name FROM stores WHERE subdomain=$1 LIMIT 1`,
-            [subdomain]
-        );
+        // Same rule as sitemap/robots: validated host, published + not deleted only.
+        const host = cleanHost(req);
+        const store = host ? await findPublishedStore(host) : null;
+        if (!store) return res.status(404).send('Not found');
 
-        // If not found by subdomain, try custom domain match
-        if (!result.rows.length) {
-            result = await pool.query(
-                `SELECT config, store_name FROM stores WHERE config->>'customDomain' ILIKE $1 OR config->>'customDomain' ILIKE $2 LIMIT 1`,
-                [host, `www.${host}`]
-            );
-        }
-
-        if (!result.rows.length) return res.status(404).send('Not found');
-
-        const store = result.rows[0];
         const config = store.config || {};
         const profile = config.profile || {};
         const brand = config.brand || {};
 
-        const storeName = sanitize(store.store_name || profile.storeName || subdomain);
-        const seoTitle = sanitize(profile.seoTitle || `${storeName} - Shop Online`);
-        const seoDescription = sanitize(profile.seoDescription || profile.aboutUs?.substring(0, 160) || `Shop at ${storeName}`);
+        const storeNameRaw = store.store_name || profile.storeName || store.subdomain || host;
+        const storeName = sanitize(storeNameRaw);
+        const seoTitle = sanitize(profile.seoTitle || `${storeNameRaw} - Shop Online`);
+        const aboutShort = (profile.aboutUs || '').substring(0, 160);
+        const seoDescription = sanitize(profile.seoDescription || aboutShort || `Shop at ${storeNameRaw}`);
         const seoKeywords = sanitize(profile.seoKeywords || '');
-        const ogImage = brand.logoUrl || profile.logoUrl || 'https://aapnaestore.com/og-default.png';
-        let url = `https://${host}`;
+        const logoUrl = httpsUrl(brand.logoUrl) || httpsUrl(profile.logoUrl);
+        const ogImage = logoUrl || 'https://aapnaestore.com/og-default.png';
+        const baseUrl = `https://${host}`;
 
-        // Product deep link? The Worker/nginx should pass the original path as
-        // ?path=/product/paneer-puff-123 (or an x-forwarded-uri header).
-        const reqPath = String(req.query.path || req.headers['x-forwarded-uri'] || '').split('?')[0];
-        const productId = parseProductIdFromPath(reqPath);
+        // Which page is this? The Worker/nginx must pass the original path as
+        // ?path=/product/<slug>-<id> (or an x-forwarded-uri header). If it is
+        // missing we do NOT guess: a wrong canonical (e.g. every page -> home)
+        // is worse than none.
+        const reqPath = String(req.query.path || req.headers['x-forwarded-uri'] || '')
+            .split('?')[0].split('#')[0];
+        const pathKnown = reqPath !== '';
+        const isHome = reqPath === '/';
+        const isProductPath = reqPath.startsWith('/product/');
+
         let product = null;
-        if (productId) {
+        if (isProductPath) {
+            const productId = parseProductIdFromPath(reqPath);
             for (const cat of (config.products?.categories || [])) {
-                product = (cat.products || []).find(p => String(p.id) === String(productId) && !p._archived);
+                product = (cat.products || []).find(p => String(p.id) === String(productId) && !p._archived && p.name);
                 if (product) break;
             }
         }
 
-        // Read storefront index.html
-        const indexPath = path.join('/home/ubuntu/apps/ApaneStore-Storefront/dist/index.html');
-        let html = fs.readFileSync(indexPath, 'utf8');
+        let pageTitle = seoTitle, pageDesc = seoDescription, pageImage = ogImage, ogType = 'website';
+        let canonical = '', robotsMeta = '', jsonLd = '', status = 200;
 
-        // Inject meta tags
-        let pageTitle = seoTitle, pageDesc = seoDescription, pageImage = ogImage, ogType = 'website', jsonLd = '';
         if (product) {
-            const firstImg = (product.images || []).map(i => typeof i === 'string' ? i : (i?.url || i?.preview)).find(Boolean);
-            const prices = (product.variations || []).flatMap(v => (v.sizes || []).map(sz => parseFloat(sz.price))).filter(n => !isNaN(n));
+            const pageUrl = `${baseUrl}${buildProductPath(product)}`;
+            const firstImg = productImageUrls(product, 1)[0];
+            const prices = (product.variations || []).flatMap(v => (v.sizes || []).map(sz => parseFloat(sz.price))).filter(Number.isFinite);
             const low = prices.length ? Math.min(...prices) : null;
-            pageTitle = sanitize(`${product.name} - ${storeName}`);
-            pageDesc = sanitize(product.description || `Buy ${product.name} from ${storeName}${low !== null ? ` starting at ₹${low}` : ''}.`).substring(0, 160);
+            pageTitle = sanitize(`${product.name} - ${storeNameRaw}`);
+            pageDesc = sanitize(product.description || `Buy ${product.name} from ${storeNameRaw}${low !== null ? ` starting at ₹${low}` : ''}.`).substring(0, 160);
             pageImage = sanitize(firstImg || ogImage);
             ogType = 'product';
-            url = `https://${host}${buildProductPath(product)}`;
-            const ld = {
-                '@context': 'https://schema.org',
-                '@type': 'Product',
-                name: product.name,
-                description: product.description || undefined,
-                image: firstImg ? [firstImg] : undefined,
-                offers: low !== null ? {
-                    '@type': 'Offer', priceCurrency: 'INR', price: String(low), url,
-                    availability: 'https://schema.org/InStock',
-                } : undefined,
-            };
-            // '<' escaped so tenant text can't close the script tag
-            jsonLd = `\n    <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`;
+            canonical = pageUrl; // current slug: old names, bare-ID links and ?utm= variants all consolidate here
+            jsonLd = ldScript(buildProductJsonLd({ product, storeName: storeNameRaw, baseUrl, pageUrl }));
+        } else if (isProductPath) {
+            // /product/<unknown or deleted id>: tell crawlers it is gone instead of
+            // serving it as a 200 copy of the homepage (soft-404).
+            status = 404;
+            robotsMeta = '<meta name="robots" content="noindex, nofollow">';
+        } else if (isHome) {
+            canonical = `${baseUrl}/`;
+            jsonLd = ldScript(buildStoreJsonLd({
+                storeName: storeNameRaw, baseUrl, logo: logoUrl,
+                description: (profile.seoDescription || profile.aboutUs || '').substring(0, 300) || undefined, profile,
+            }));
+        } else if (pathKnown) {
+            // Any other path (/cart, /orders, /profile, ...) is an app screen, not content.
+            robotsMeta = '<meta name="robots" content="noindex, follow">';
         }
+        const pageOgUrl = canonical || `${baseUrl}/`;
+
+        // Read storefront index.html and swap its static head tags for the real ones.
+        // index.html ships hard-coded description/og/twitter tags; leaving them in
+        // would put duplicates next to ours (crawlers pick the first one).
+        const indexPath = path.join('/home/ubuntu/apps/ApaneStore-Storefront/dist/index.html');
+        let html = fs.readFileSync(indexPath, 'utf8');
+        html = html.replace(/<meta\s+(?:name|property)="(?:description|keywords|og:[^"]*|twitter:[^"]*|robots)"[^>]*>\s*/gi, '');
+        html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
 
         const metaTags = `
     <title>${pageTitle}</title>
     <meta name="description" content="${pageDesc}">
-    <meta name="keywords" content="${seoKeywords}">
+    ${seoKeywords ? `<meta name="keywords" content="${seoKeywords}">` : ''}
+    ${robotsMeta}
     <meta property="og:title" content="${pageTitle}">
     <meta property="og:description" content="${pageDesc}">
     <meta property="og:image" content="${pageImage}">
-    <meta property="og:url" content="${url}">
+    <meta property="og:url" content="${pageOgUrl}">
     <meta property="og:type" content="${ogType}">
     <meta property="og:site_name" content="${storeName}">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="${pageTitle}">
     <meta name="twitter:description" content="${pageDesc}">
     <meta name="twitter:image" content="${pageImage}">
-    <link rel="canonical" href="${url}">${jsonLd}`;
+    ${canonical ? `<link rel="canonical" href="${canonical}">` : ''}${jsonLd}`;
 
-        html = html.replace(/<title>[^<]*<\/title>/, metaTags);
+        html = html.replace(/<title>[^<]*<\/title>/, () => metaTags);
 
-        res.setHeader('Content-Type', 'text/html');
+        res.status(status);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        // Output depends on who asks (bot vs human): tell caches, and don't let them keep it.
+        res.setHeader('Vary', 'User-Agent');
+        res.setHeader('Cache-Control', 'no-store');
         res.send(html);
     } catch (e) {
         console.error('SEO meta error:', e);
@@ -150,13 +224,13 @@ async function findPublishedStore(host) {
         const sub = host.slice(0, -(PLATFORM_DOMAIN.length + 1));
         if (!sub || sub.includes('.')) return null;
         const r = await pool.query(
-            `SELECT config, store_name, updated_at FROM stores
+            `SELECT config, store_name, subdomain, updated_at FROM stores
              WHERE subdomain = $1 AND status = 'published' AND deleted_at IS NULL LIMIT 1`, [sub]);
         return r.rows[0] || null;
     }
     const clean = host.replace(/^www\./, '');
     const r = await pool.query(
-        `SELECT s.config, s.store_name, s.updated_at
+        `SELECT s.config, s.store_name, s.subdomain, s.updated_at
          FROM stores s JOIN store_domain_config sdc ON sdc.store_id = s.id
          WHERE sdc.custom_domain IN ($1, $2) AND sdc.dns_status = 'verified'
            AND s.status = 'published' AND s.deleted_at IS NULL LIMIT 1`,
