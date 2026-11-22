@@ -588,6 +588,30 @@ const runColumnMigrations = async () => {
         )`,
         `CREATE INDEX IF NOT EXISTS idx_owner_sessions_store ON owner_sessions(store_id)`,
         `CREATE INDEX IF NOT EXISTS idx_owner_sessions_token ON owner_sessions(token)`,
+// One trial per tenant: permanent record of trials that were started. Survives the
+        // trial expiring, a paid plan overwriting the subscription row, and store deletion.
+        `CREATE TABLE IF NOT EXISTS trial_usage (
+            id         SERIAL PRIMARY KEY,
+            tenant_id  INTEGER NOT NULL,
+            email      TEXT,
+            phone      TEXT,
+            store_id   INTEGER,
+            store_name TEXT,
+            used_at    TIMESTAMP DEFAULT NOW()
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS trial_usage_tenant_store_uq ON trial_usage (tenant_id, store_id)`,
+        `CREATE INDEX IF NOT EXISTS trial_usage_email_idx ON trial_usage (LOWER(email))`,
+        `CREATE INDEX IF NOT EXISTS trial_usage_phone_idx ON trial_usage (phone)`,
+        // Backfill from stores that still exist (idempotent — safe on every startup)
+        `INSERT INTO trial_usage (tenant_id, email, phone, store_id, store_name, used_at)
+         SELECT t.id, LOWER(NULLIF(t.email, '')),
+                NULLIF(regexp_replace(COALESCE(t.phone, ''), '\\D', '', 'g'), ''),
+                s.id, s.store_name, COALESCE(s.published_at, s.created_at)
+           FROM stores s JOIN tenants t ON t.id = s.tenant_id
+          WHERE s.trial_used = true
+             OR EXISTS (SELECT 1 FROM store_subscriptions ss WHERE ss.store_id = s.id AND ss.is_trial = true)
+         ON CONFLICT (tenant_id, store_id) DO NOTHING`,
+        
     ];
 
     let applied = 0;
