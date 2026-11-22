@@ -1,5 +1,46 @@
 const pool = require('../config/database');
 
+// "One trial per tenant" must survive: the trial expiring (status flips from
+// 'paid' to 'expired'), a paid plan overwriting the trial row, the store being
+// deleted, and the same person signing in with a second account. So trial use
+// is kept in its own table, trial_usage, and matched on tenant id AND on
+// email/phone. Older signals (stores.trial_used, any trial subscription row,
+// whatever its payment_status) are still honoured as well.
+async function hasTenantUsedTrial(tenantId) {
+    const r = await pool.query(
+        `SELECT 1 FROM trial_usage tu, tenants t
+          WHERE t.id = $1
+            AND ( tu.tenant_id = t.id
+               OR (COALESCE(t.email, '') <> '' AND LOWER(tu.email) = LOWER(t.email))
+               OR (regexp_replace(COALESCE(t.phone, ''), '\\D', '', 'g') <> ''
+                   AND tu.phone = regexp_replace(t.phone, '\\D', '', 'g')) )
+          UNION ALL
+         SELECT 1 FROM stores s WHERE s.tenant_id = $1 AND s.trial_used = true
+          UNION ALL
+         SELECT 1 FROM store_subscriptions ss JOIN stores s ON s.id = ss.store_id
+          WHERE s.tenant_id = $1 AND ss.is_trial = true
+          LIMIT 1`,
+        [tenantId]
+    );
+    return r.rows.length > 0;
+}
+
+async function recordTrialUsage(tenantId, storeId) {
+    try {
+        await pool.query(
+            `INSERT INTO trial_usage (tenant_id, email, phone, store_id, store_name)
+             SELECT t.id, LOWER(NULLIF(t.email, '')),
+                    NULLIF(regexp_replace(COALESCE(t.phone, ''), '\\D', '', 'g'), ''),
+                    s.id, s.store_name
+               FROM tenants t, stores s WHERE t.id = $1 AND s.id = $2
+             ON CONFLICT (tenant_id, store_id) DO NOTHING`,
+            [tenantId, storeId]
+        );
+    } catch (e) {
+        console.error('trial_usage insert failed (run scripts/trial_usage_migration.js):', e.message);
+    }
+}
+
 const TrialController = {
 
     checkEligibility: async (req, res) => {
@@ -20,11 +61,7 @@ const TrialController = {
             }
             const store = storeResult.rows[0];
 
-            const tenantTrialResult = await pool.query(
-                'SELECT COUNT(*) as count FROM store_subscriptions ss JOIN stores s ON s.id = ss.store_id WHERE s.tenant_id = $1 AND ss.is_trial = true AND ss.payment_status = $2',
-                [tenantId, 'paid']
-            );
-            const tenantUsedTrial = parseInt(tenantTrialResult.rows[0].count) > 0;
+            const tenantUsedTrial = await hasTenantUsedTrial(tenantId);
 
             const planResult = await pool.query(
                 "SELECT is_active, validity_days, base_amount, tax_percentage FROM pricing_plans WHERE plan_key = 'trial' AND billing_cycle = 'trial' LIMIT 1"
@@ -88,11 +125,7 @@ const TrialController = {
             }
             const store = storeCheck.rows[0];
 
-            const tenantTrialResult = await pool.query(
-                'SELECT COUNT(*) as count FROM store_subscriptions ss JOIN stores s ON s.id = ss.store_id WHERE s.tenant_id = $1 AND ss.is_trial = true AND ss.payment_status = $2',
-                [tenantId, 'paid']
-            );
-            const tenantUsedTrial = parseInt(tenantTrialResult.rows[0].count) > 0;
+            const tenantUsedTrial = await hasTenantUsedTrial(tenantId);
 
             let trialDays;
             let trialLevel;
@@ -125,6 +158,8 @@ const TrialController = {
                 "UPDATE stores SET status = 'published', published_at = NOW(), trial_used = true, trial_enabled = false, updated_at = NOW() WHERE id = $1",
                 [id]
             );
+
+            await recordTrialUsage(tenantId, id);
 
             try {
                 const { TERMS_VERSION } = require('../config/terms');
