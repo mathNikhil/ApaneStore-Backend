@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const platformMeta = require('../utils/platformMeta');
+router.get('/meta', platformMeta.meta);
+router.get('/platform-sitemap', platformMeta.sitemap);
 const fs = require('fs');
 const path = require('path');
 const { buildProductPath, parseProductIdFromPath } = require('../utils/productSlug');
