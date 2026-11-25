@@ -101,6 +101,8 @@ router.post('/subscriptions/check-expiry', authenticateAdmin, async (req, res) =
     res.json(result);
 });
 
+
+
 // ============================================================
 // ✅ TERMS ACCEPTANCE AUDIT TRAIL
 // ============================================================
@@ -122,6 +124,37 @@ router.get('/terms-acceptances', authenticateAdmin, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+// Platform SEO Settings
+router.post('/seo-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const { title, description, ogDescription, keywords, ogImage, siteName, siteUrl, marketingUrl } = req.body;
+        const str = (v, n) => String(v || '').trim().substring(0, n);
+        let pages;
+        if (Array.isArray(req.body.pages)) {
+            pages = req.body.pages.slice(0, 30).map(p => ({
+                path: str(p && p.path, 200),
+                title: str(p && p.title, 70),
+                description: str(p && p.description, 200),
+                h1: str(p && p.h1, 150),
+                body: str(p && p.body, 6000),
+                noindex: !!(p && p.noindex),
+            })).filter(p => p.path.startsWith('/') && !p.path.includes(' '));
+        } else {
+            const old = await pool.query("SELECT value FROM platform_settings WHERE key='seo_settings' LIMIT 1");
+            pages = old.rows.length ? (JSON.parse(old.rows[0].value).pages || []) : [];
+        }
+        await pool.query(
+            `INSERT INTO platform_settings (key, value) VALUES ('seo_settings', $1)
+             ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+            [JSON.stringify({ title, description, ogDescription, keywords, ogImage, siteName, siteUrl, marketingUrl, pages })]
+        );
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+
+
+
 
 
 // Download Terms Agreement PDF
