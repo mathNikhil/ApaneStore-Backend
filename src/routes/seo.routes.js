@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+router.get('/meta', platformMeta.meta);
+router.get('/platform-sitemap', platformMeta.sitemap);
 const pool = require('../config/database');
 const platformMeta = require('../utils/platformMeta');
 router.get('/meta', platformMeta.meta);
