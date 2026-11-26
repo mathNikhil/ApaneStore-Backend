@@ -4,7 +4,7 @@ const pool = require('../config/database');
 const BASE = 'https://aapnaestore.com';
 const HOSTS = new Set(['aapnaestore.com', 'www.aapnaestore.com', 'app.aapnaestore.com', 'dev.aapnaestore.com']);
 const NOINDEX_HOSTS = new Set(['app.aapnaestore.com', 'dev.aapnaestore.com']);
-const BOTS = ['googlebot', 'bingbot', 'facebookexternalhit', 'twitterbot', 'whatsapp', 'telegrambot', 'linkedinbot', 'slackbot', 'discordbot', 'applebot'];
+const BOTS = ['googlebot', 'bingbot', 'facebookexternalhit', 'twitterbot', 'whatsapp', 'telegrambot', 'linkedinbot', 'slackbot', 'discordbot', 'applebot', 'oai-searchbot', 'chatgpt-user', 'gptbot', 'perplexitybot', 'claudebot'];
 const INDEX_FILE = '/home/ubuntu/apps/ApaneStore-Frontend/dist/index.html';
 
 const esc = (s = '') => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
